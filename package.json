@@ -1,0 +1,55 @@
+{
+  "name": "@maahes/core",
+  "version": "1.0.0",
+  "author": "Abdelhalim Yasser",
+  "description": "Maahes security toolkit",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "smoke:node": "node scripts/smoke.mjs",
+    "smoke:bun": "bun scripts/smoke.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "argon2": "^0.41.1",
+    "bcrypt": "^5.1.1"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "tsup": "^8.2.4",
+    "typescript": "^5.5.4"
+  },
+  "keywords": [
+    "security",
+    "argon2",
+    "password",
+    "cors",
+    "csrf",
+    "xss",
+    "headers"
+  ],
+  "license": "MIT",
+  "allowScripts": {
+    "argon2@0.41.1": true,
+    "bcrypt@5.1.1": true
+  }
+}
