@@ -9,6 +9,7 @@ test/
   password/   config · drivers · policy · detect · factory · migration · adversarial
   cors/       config · core · adapters · adversarial
   headers/    config · core · adapters · adversarial
+  csp/        config · core · adversarial (incl. headers integration)
 ```
 
 Every module gets:

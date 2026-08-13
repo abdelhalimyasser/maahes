@@ -15,10 +15,12 @@ Workers, Deno, …) work where the runtime provides `Request`/`Response`.
 dependencies = smaller attack surface; dependabot + `npm audit` in CI
 keep them watched.
 
-**Does Maahes have a CSP module?** Not yet — and deliberately,
-`SecurityHeaders` never emits `Content-Security-Policy` (the emission
-slot is reserved). A `csp` module is on the roadmap so policies get the
-same deterministic, tested treatment as the rest.
+**Does Maahes have a CSP module?** Yes — `Csp` (since 1.3.0), with
+deterministic serialization, presets, nonce support, report-only and
+strict parsing. `SecurityHeaders` never emits a policy without one
+explicitly configured; the `csp` option plugs a static policy in,
+emitted first in the canonical header order. Nonce-based policies use
+the standalone module per request.
 
 ## Password
 
@@ -87,16 +89,23 @@ in what's missing. `remove` still strips listed names.
 **Why is `X-XSS-Protection: "0"` the default?** The legacy XSS filter
 is disabled-by-default in modern browsers and its "block" mode caused
 real-world bypasses. `"0"` documents the decision instead of implying
-protection. The real XSS defense is CSP (planned module) + output
+protection. The real XSS defense is CSP ([csp.md](csp.md)) + output
 encoding.
 
 **How do I add a custom header?** `extra: { "X-Request-Id": "…" }` —
 validated, sorted, appended after the known set. Engine-owned header
-names are rejected there (they're configured via their own options).
+names are rejected there (they're configured via their own options,
+including the CSP headers).
+
+**How do I add a Content-Security-Policy?** `SecurityHeaders({ csp:
+"default-src 'self'" })` for a static policy; `Csp({ preset: "strict"
+}).policy({ nonce })` per request for nonce-based policies. There is no
+CSP by default — a policy that doesn't fit your app breaks it, so
+Maahes never guesses.
 
 ## Roadmap
 
-**What's planned?** CSP, CSRF protection, hashing (generic), encryption,
+**What's planned?** CSRF protection, hashing (generic), encryption,
 rate limiting, secrets management, XSS helpers, SQL-injection guards,
 audit logging. Each module ships with the same contracts: deterministic
 engine, fail-fast config, adversarial tests, examples, docs.

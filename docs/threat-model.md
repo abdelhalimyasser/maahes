@@ -19,7 +19,7 @@ in mind when configuring.
 
 | Threat | Header / control | Residual risk |
 | --- | --- | --- |
-| Clickjacking | `X-Frame-Options: DENY` | a browser that ignores it; CSP `frame-ancestors` (planned module) is stronger |
+| Clickjacking | `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'` | a browser that ignores both; CSP `frame-ancestors` is the modern control |
 | MIME sniffing → XSS via uploaded content | `X-Content-Type-Options: nosniff` | content itself must still be served with correct types |
 | Referrer leakage | `Referrer-Policy: strict-origin-when-cross-origin` | third-party resources can still see the origin |
 | Cross-origin read (Spectre-class) | COOP `same-origin` + COEP `credentialless` + CORP `same-origin` (strict) | requires the full trio; breaks embedding third-party resources |
@@ -28,6 +28,7 @@ in mind when configuring.
 | Credentialed cross-origin reads | CORS engine: literal origin reflection when credentials on, `Vary` merging, first-Origin-wins | CORS is not authn/authz — server-side checks required |
 | Response splitting | header-name/control-char rejection at construction | — (impossible by construction) |
 | Server fingerprinting | `remove: ["Server", "X-Powered-By"]` | obfuscation, not security — patch, don't hide |
+| Stored/reflected XSS payload execution | CSP: `default-src 'self'`, strict-dynamic with nonces, `object-src 'none'` | requires output encoding + a real policy; report-only policies observe first |
 
 ## DoS
 

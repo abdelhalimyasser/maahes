@@ -4,6 +4,40 @@ All notable changes to this project are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-08-13
+
+### Added
+
+- **Csp module** (`Csp()` factory + `CSP_PRESETS`, `parseCsp`,
+  `serializeCsp`, `buildCsp`, `CspOptionsError`, exported from the
+  package root):
+  - Deterministic policy engine: directives sorted by name, sources in
+    configured order (meaningful in CSP 3 precedence) — identical config
+    + context → byte-identical policy.
+  - Presets `minimal` / `default` / `strict`; presets replace the
+    directive map wholesale (minimal never constrains script loading),
+    user directives merge per directive name; `DEFAULT_CSP_CONFIG`
+    exported.
+  - Config from object, JSON string, JSON file (`{"csp": …}`
+    unwrapped), or raw policy string — raw policies replace the defaults
+    entirely.
+  - Strict grammar: directive names are RFC 7230 tokens, sources reject
+    control characters / `;` / `,` / `"`, `'none'` only as a sole
+    source, duplicate directives rejected — policy injection impossible
+    by construction (`CspOptionsError`).
+  - `'nonce-$nonce'` templates filled from the build context
+    (`build`/`headers`/`policy`); building a nonce-bearing policy
+    without a nonce fails loud instead of emitting a broken policy.
+  - `reportOnly` emits `Content-Security-Policy-Report-Only`.
+  - **SecurityHeaders integration** — `csp` option (config, serialized
+    policy, or `false`): emitted first in the canonical order (position 1
+    of `KNOWN_HEADER_ORDER`, reserved since 1.2.0), honors
+    overwrite/remove semantics, rejects `'nonce-$nonce'` templates
+    (no per-request nonce channel), surfaces policy errors as
+    `SecurityHeadersOptionsError`.
+- `examples/csp-server.mjs`: static + strict-dynamic nonce policy on a
+  plain Node HTTP server.
+
 ## [1.2.0] - 2026-08-13
 
 ### Added

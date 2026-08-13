@@ -20,14 +20,18 @@ no platform setup.
 ## Quick start
 
 ```ts
-import Password, { Cors, SecurityHeaders } from "@maahes/core";
+import Password, { Cors, SecurityHeaders, Csp } from "@maahes/core";
 
 const pwd = Password();                                  // Argon2id, defaults
 const hash = await pwd.hashPassword("S3cure!Pass-2024"); // signup
 const ok   = await pwd.verifyPassword(hash, "S3cure!Pass-2024"); // login → true
 
 app.use(Cors({ origin: ["https://app.example.com"] }).middleware());
-app.use(SecurityHeaders({ preset: "default" }).middleware());
+app.use(SecurityHeaders({ preset: "default", csp: "default-src 'self'" }).middleware());
+
+// Nonce-based strict CSP per request:
+const csp = Csp({ preset: "strict" });
+// const { headers } = csp.build({ nonce }); → set the policy header per response
 ```
 
 ```js
@@ -38,7 +42,7 @@ const { Password } = require("@maahes/core");
 ## Conventions used by every module
 
 **1. Factory + immutable instance.** Create once at boot, share everywhere
-(thread-safe). Every factory — `Password`, `Cors`, `SecurityHeaders` —
+(thread-safe). Every factory — `Password`, `Cors`, `SecurityHeaders`, `Csp` —
 accepts:
 
 ```ts

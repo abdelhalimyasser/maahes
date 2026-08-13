@@ -10,13 +10,15 @@
  * credentials, deny policies, Vary merging, the middleware and the fetch
  * wrapper. Finally exercises the SecurityHeaders module: preset defaults,
  * overwrite/remove semantics, secure-context HSTS, and both runtime
- * adapters. Runs against `dist/` under BOTH Node.js (`npm run smoke:node`)
+ * adapters — plus the CSP module: presets, nonces, report-only, raw
+ * policy parsing, and the headers integration. Runs against `dist/` under
+ * BOTH Node.js (`npm run smoke:node`)
  * and Bun (`npm run smoke:bun`) to prove runtime compatibility.
  *
  * Exits non-zero on the first failed assertion.
  */
 
-import { Password, Cors, SecurityHeaders, detectHashAlgorithm, estimateEntropy, PasswordPolicyError } from "../dist/index.js";
+import { Password, Cors, SecurityHeaders, Csp, detectHashAlgorithm, estimateEntropy, PasswordPolicyError } from "../dist/index.js";
 
 let checks = 0;
 
@@ -192,7 +194,7 @@ async function run() {
   assert(plan.headers["X-Frame-Options"] === "DENY", "headers: overwrite default wins");
   assert(plan.headers["Strict-Transport-Security"] === "max-age=31536000; includeSubDomains", "headers: HSTS on secure");
   assert(plan.headers["Cross-Origin-Resource-Policy"] === "same-origin", "headers: strict preset CORP");
-  assert(plan.headers["Content-Security-Policy"] === undefined, "headers: CSP never emitted");
+  assert(plan.headers["Content-Security-Policy"] === undefined, "headers: CSP absent without csp option");
   assert(plan.removed.includes("Server"), "headers: remove planned");
 
   const insecure = secHeaders.build({ secure: false });
@@ -225,6 +227,50 @@ async function run() {
   assert((await hresp.text()) === "ok", "headers: fetch wrapper returned handler body");
   assert(hresp.headers.get("X-Frame-Options") === "DENY", "headers: fetch wrapper overwrite");
   assert(hresp.headers.get("Server") === null, "headers: fetch wrapper removal");
+
+  // 9) CSP: presets, nonces, report-only, raw policies, headers integration.
+  const strict = Csp({ preset: "strict", directives: { "style-src": ["'self'"] } });
+  assert(
+    strict.policy({ nonce: "abc123" }) ===
+      "base-uri 'self'; default-src 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'nonce-abc123' 'strict-dynamic'; style-src 'self'",
+    "csp: strict preset policy with nonce, sources in order"
+  );
+  let nonceError = false;
+  try {
+    strict.policy();
+  } catch {
+    nonceError = true;
+  }
+  assert(nonceError, "csp: building without a nonce fails loud");
+
+  const reportOnly = Csp({ preset: "default", reportOnly: true });
+  assert(reportOnly.headers().has("Content-Security-Policy-Report-Only"), "csp: reportOnly emits Report-Only header");
+  assert(
+    reportOnly.policy() === "base-uri 'self'; default-src 'self'; frame-ancestors 'none'; object-src 'none'",
+    "csp: default preset deterministic policy"
+  );
+
+  const raw = Csp("default-src 'self'; img-src https: data:; frame-ancestors 'none'");
+  assert(
+    raw.policy() === "default-src 'self'; frame-ancestors 'none'; img-src https: data:",
+    "csp: raw policy replaces defaults, directives sorted"
+  );
+
+  const withCsp = SecurityHeaders({ csp: { directives: { "default-src": ["'self'"] } } });
+  const cspPlan = withCsp.build({ secure: true });
+  const cspKeys = Object.keys(cspPlan.headers);
+  assert(cspKeys[0] === "Content-Security-Policy", "headers: CSP emitted first");
+  assert(
+    cspPlan.headers["Content-Security-Policy"] === "base-uri 'self'; default-src 'self'; frame-ancestors 'none'; object-src 'none'",
+    "headers: csp option policy resolved"
+  );
+  let cspNonceRejected = false;
+  try {
+    SecurityHeaders({ csp: "script-src 'nonce-$nonce'" });
+  } catch {
+    cspNonceRejected = true;
+  }
+  assert(cspNonceRejected, "headers: nonce templates rejected in the csp channel");
 
   console.log(`\nSMOKE OK: ${checks} checks passed (${process.execPath})`);
   process.exit(0);

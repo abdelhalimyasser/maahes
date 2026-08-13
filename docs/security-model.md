@@ -65,8 +65,9 @@ How Maahes modules make security decisions, and the guarantees they make
   preconditions.
 - CRLF/splitting is impossible by construction (control characters are
   rejected at configuration time).
-- The module never emits `Content-Security-Policy` — no false sense of a
-  policy that isn't there.
+- CSP only when explicitly configured — never a surprise policy that
+  breaks your app; the `csp` option is emitted first and validated by
+  the dedicated module's strict grammar.
 
 ## What Maahes does NOT do
 

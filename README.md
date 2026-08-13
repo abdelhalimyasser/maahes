@@ -12,10 +12,11 @@ output and first-class documentation.
 | [`Password`](docs/password.md) | ✅ 1.2.0 | Argon2id / bcrypt / scrypt hashing, Unicode-aware policy engine, keyring peppering with rotation |
 | [`Cors`](docs/cors.md) | ✅ 1.1.0 | Origin rules & globs, per-origin credentials, PNA, Express/node/fetch adapters, `Vary` merging |
 | [`SecurityHeaders`](docs/headers.md) | ✅ 1.2.0 | Deterministic header engine with presets, HSTS semantics, middleware + fetch adapters |
-| CSRF · CSP · XSS · hashing · encryption · rate limiting · secrets · audit | 🚧 planned | each ships with the same contracts (see [roadmap](docs/index.md)) |
+| [`Csp`](docs/csp.md) | ✅ 1.3.0 | Deterministic CSP engine: presets, nonces, report-only, strict parser, headers integration |
+| CSRF · XSS · hashing · encryption · rate limiting · secrets · audit | 🚧 planned | each ships with the same contracts (see [roadmap](docs/index.md)) |
 
 ```ts
-import Password, { Cors, SecurityHeaders } from "@maahes/core";
+import Password, { Cors, SecurityHeaders, Csp } from "@maahes/core";
 
 // Passwords
 const pwd = Password();                          // Argon2id, sane defaults
@@ -24,6 +25,10 @@ const hash = await pwd.hashPassword("Tr0ub4dor&3-G00d");
 // Responses
 app.use(Cors({ origin: ["https://app.example.com"] }).middleware());
 app.use(SecurityHeaders({ preset: "strict" }).middleware());
+
+// Content Security Policy — static via SecurityHeaders, or nonce-based per request:
+app.use(SecurityHeaders({ csp: "default-src 'self'" }).middleware());
+const csp = Csp({ preset: "strict" });           // needs a nonce at build time
 ```
 
 ## Install

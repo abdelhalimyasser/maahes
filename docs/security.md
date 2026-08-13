@@ -41,8 +41,11 @@ SecurityHeaders({
   10⁵ entries).
 - **Headers**: `httpsOnly` defaults keep HSTS off plain HTTP; `preload`
   fails fast unless its real preconditions hold. Never disable
-  `nosniff`/`frameOptions` without a compensating control (CSP
-  `frame-ancestors` once the csp module lands).
+  `nosniff`/`frameOptions` without a compensating control.
+- **CSP**: start with a report-only policy, then enforce. The safe
+  baseline is `SecurityHeaders({ csp: "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'" })`;
+  the modern strict-dynamic pattern (`Csp({ preset: "strict" })`) needs
+  a per-request nonce — see [csp.md](csp.md).
 
 ## Do / don't
 

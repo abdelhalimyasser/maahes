@@ -1,6 +1,6 @@
 {
   "name": "@maahes/core",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "Abdelhalim Yasser",
   "description": "Maahes security toolkit: password hashing and policy, CORS, and security headers for Node.js >= 18 and Bun",
   "repository": {

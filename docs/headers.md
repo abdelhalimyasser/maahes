@@ -19,8 +19,9 @@ Web Platform already owns a global `Headers` type and constructor.
 - **Determinism** — fixed emission order (`KNOWN_HEADER_ORDER`), extras
   sorted with `localeCompare`; identical config + context → byte-identical
   output. Safe to diff, cache and test.
-- **No surprises** — `Content-Security-Policy` is **never** emitted by
-  this module (a dedicated `csp` module is planned; the slot is reserved).
+- **No surprises** — `Content-Security-Policy` is only emitted when
+  explicitly configured (`csp` option, resolved via the dedicated
+  [`csp` module](csp.md)); without a policy, no CSP header is produced.
 - **Secure by default** — HSTS is only served in secure contexts
   (`httpsOnly: true` default); `preload` demands the preconditions the
   preload list requires (fail fast, at construction).
@@ -97,6 +98,7 @@ interface SecurityHeadersConfig {
   overwrite?: boolean;            // default true — replace same-named existing headers
   remove?: string[];              // fingerprinting headers to strip
   extra?: Record<string, string>; // sorted, appended after known headers
+  csp?: CspConfig | string | false; // static policy, emitted first (see docs/csp.md); default false
   hsts?: HstsConfig | false;      // default { maxAge: 31536000, includeSubDomains: true, preload: false }
   frameOptions?: FrameOptionsValue | false;   // default "DENY"
   referrerPolicy?: ReferrerPolicyValue | false; // default "strict-origin-when-cross-origin"
@@ -148,7 +150,26 @@ const headers = SecurityHeaders({
   that must never leak from a downgrade-capable proxy. Set
   `httpsOnly: false` only if you serve HSTS from an HTTP edge.
 
-## 6. Adapters
+## 6. Content-Security-Policy
+
+CSP is only emitted when explicitly configured, via the `csp` option
+(supported by the same object/JSON-string/file contract — see
+[the CSP module](csp.md)):
+
+```ts
+const headers = SecurityHeaders({ csp: "default-src 'self'" });
+// or
+const headers = SecurityHeaders({ csp: { directives: { "default-src": ["'self'"] } } });
+```
+
+- Emitted **first** in the canonical order (position 1 of
+  `KNOWN_HEADER_ORDER` — the slot was reserved before the module shipped).
+- Honoring `overwrite`/`remove` like every other engine header; disabled
+  with `csp: false` (never a surprise policy).
+- `'nonce-$nonce'` templates are rejected in this channel — nonce-based
+  policies belong to the `Csp` module, which can fill them per request.
+
+## 7. Adapters
 
 ### Middleware
 
@@ -182,7 +203,7 @@ Wraps any handler; the returned `Response` preserves status, statusText
 and body, `Set-Cookie` survives untouched, and downstream errors always
 propagate.
 
-## 7. Configuration input
+## 8. Configuration input
 
 Same contract as `Password`/`Cors` — object, inline JSON string, or JSON
 file path with an optional `{"headers": …}` wrapper:
@@ -192,7 +213,7 @@ const headers = SecurityHeaders("./headers.json");
 // headers.json: { "headers": { "preset": "strict", "remove": ["Server"] } }
 ```
 
-## 8. Run it
+## 9. Run it
 
 ```bash
 node examples/headers-server.mjs   # middleware on raw node:http
@@ -200,7 +221,7 @@ node examples/headers-fetch.mjs    # fetch wrapper bridged into HTTP
 # works identically with `bun`; curl -i localhost:3000 to inspect
 ```
 
-## 9. See also
+## 10. See also
 
 - [security-model.md](security-model.md) — header-by-header rationale
 - [threat-model.md](threat-model.md) — what these headers do and do not stop

@@ -15,6 +15,7 @@ docs/
   password.md         ← Password: API, configs, policy, peppering, flows
   cors.md             ← Cors: API, configs, presets, flows, security notes
   headers.md          ← SecurityHeaders: API, presets, adapters
+  csp.md              ← Csp: directives, presets, nonces, report-only
   security.md         ← operational hardening checklist
   security-model.md   ← design guarantees, module by module
   threat-model.md     ← attacker-by-attacker analysis
@@ -32,7 +33,8 @@ examples/             ← runnable end-to-end scripts (Node + Bun)
 | `Password` — hashing + policy + peppering (Argon2id / bcrypt / scrypt) | ✅ 1.2.0 | [password.md](password.md) · [examples](../examples/) | Node & Bun |
 | `Cors` — origin rules, per-origin credentials, PNA, Express + node + fetch adapters | ✅ 1.1.0 | [cors.md](cors.md) · [examples](../examples/) | Node & Bun |
 | `SecurityHeaders` — deterministic header engine, presets, middleware + fetch adapters | ✅ 1.2.0 | [headers.md](headers.md) · [examples](../examples/) | Node & Bun |
-| CSRF, CSP, XSS, hashing, encryption, rate limiting, secrets, audit | 🚧 planned | — | — |
+| `Csp` — deterministic policies, presets, nonces, report-only, headers integration | ✅ 1.3.0 | [csp.md](csp.md) · [examples](../examples/) | Node & Bun |
+| CSRF, XSS, hashing, encryption, rate limiting, secrets, audit | 🚧 planned | — | — |
 
 Upcoming modules follow the same contract: deterministic pure engine,
 fail-fast config, adversarial tests, examples, docs.
@@ -43,6 +45,7 @@ fail-fast config, adversarial tests, examples, docs.
 - Building a password system → [password.md](password.md)
 - Opening your API to the web → [cors.md](cors.md)
 - Hardening every response → [headers.md](headers.md)
+- Content security policies → [csp.md](csp.md)
 - Hardening production → [security.md](security.md)
 - What the toolkit does and doesn't stop → [threat-model.md](threat-model.md)
 - See it run → `node examples/registration-login.mjs`

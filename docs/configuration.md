@@ -72,6 +72,7 @@ try {
 | `Password` | [password.md](password.md#4-algorithms--configuration) | `DEFAULT_PASSWORD_CONFIG` |
 | `Cors` | [cors.md](cors.md#configuration) | `DEFAULT_CORS_CONFIG` |
 | `SecurityHeaders` | [headers.md](headers.md#3-api-reference) | `DEFAULT_HEADERS_CONFIG` |
+| `Csp` | [csp.md](csp.md#3-api-reference) | `DEFAULT_CSP_CONFIG` |
 
 ## Recommended baseline
 
@@ -90,7 +91,16 @@ Cors({
   maxAge: 3600,
 });
 
-SecurityHeaders({ preset: "default", remove: ["Server", "X-Powered-By"] });
+SecurityHeaders({
+  preset: "default",
+  remove: ["Server", "X-Powered-By"],
+  csp: "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'",
+});
+
+// Or a nonce-based policy, per request:
+import { Csp } from "@maahes/core";
+const csp = Csp({ preset: "strict" });
+// csp.policy({ nonce }) → set the header per response
 ```
 
 See [security.md](security.md) for rationale and the yearly review
