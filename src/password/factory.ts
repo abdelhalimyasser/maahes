@@ -313,7 +313,13 @@ export function Password(input?: PasswordConfig | string): PasswordModule {
 
       if (!rehashNeeded) return { valid: true };
 
-      const newHash = await driver.hash(candidate);
+      // The replacement hash always uses the CURRENT pepper (rotation
+      // semantics): verification selected the hash's own era secret,
+      // but a fresh hash must be bound to the current one.
+      const rehashCandidate = marked
+        ? applyPepper(normalized, ring?.current.secret as string)
+        : normalized;
+      const newHash = await driver.hash(rehashCandidate);
       return {
         valid: true,
         newHash: marked ? wrapPepperMarker(ring?.current.id as string, newHash) : newHash,
