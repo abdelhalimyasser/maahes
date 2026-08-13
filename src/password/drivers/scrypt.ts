@@ -11,6 +11,13 @@
  *
  * Verification uses `timingSafeEqual` to avoid timing side channels.
  *
+ * DoS guard: construction-time caps bound how expensive a configuration
+ * may be, and parsing rejects stored hashes with oversized sections or
+ * parameters beyond those caps BEFORE any KDF work or buffer allocation
+ * happens — a crafted hash with absurd embedded N would otherwise make
+ * every login attempt allocate gigabytes. Over-cap hashes fail
+ * verification and are flagged for migration by `needsRehash`.
+ *
  * @module password/drivers/scrypt
  */
 
@@ -21,6 +28,20 @@ import type { PasswordDriver, ScryptOptions } from "../types";
 
 /** Default random salt length in bytes. */
 const DEFAULT_SALT_LENGTH = 16;
+/** Upper bound for `cost` (N) — 16× the 2^14 default. */
+export const SCRYPT_MAX_COST = 2 ** 18;
+/** Upper bound for `blockSize` (r). */
+export const SCRYPT_MAX_BLOCK_SIZE = 16;
+/** Upper bound for `parallelization` (p). */
+export const SCRYPT_MAX_PARALLELIZATION = 8;
+/** Upper bound for `keyLength` (bytes). */
+export const SCRYPT_MAX_KEY_LENGTH = 128;
+/** Upper bound for the stored salt section (base64url chars). */
+const MAX_SALT_SECTION = 128;
+/** Upper bound for the stored derived-key section (base64url chars). */
+const MAX_HASH_SECTION = 256;
+/** Total string length guard applied before any parsing. */
+const MAX_HASH_LENGTH = 2048;
 
 /** Promisified `node:crypto` scrypt with an explicit option shape. */
 const scryptAsync = promisify(scryptCallback) as unknown as (
@@ -78,12 +99,15 @@ function encodeHash(
 
 /**
  * Parses a stored scrypt hash back into its parameters, salt and derived
- * key. Returns `null` for malformed or foreign hashes.
+ * key. Returns `null` for malformed or foreign hashes. Parsing is
+ * bounded: oversized strings, sections or parameters beyond the driver's
+ * DoS caps are rejected without allocating or deriving anything.
  *
  * @param hash - A stored hash string.
- * @returns The parsed components, or `null` when unrecognized.
+ * @returns The parsed components, or `null` when unrecognized or over-cap.
  */
 function parseHash(hash: string): ParsedScryptHash | null {
+  if (hash.length > MAX_HASH_LENGTH) return null;
   const parts = hash.split("$").filter(Boolean);
 
   if (parts.length !== 6 || parts[0] !== "scrypt") return null;
@@ -91,15 +115,28 @@ function parseHash(hash: string): ParsedScryptHash | null {
   const cost = Number(parts[1].split("=")[1]);
   const blockSize = Number(parts[2].split("=")[1]);
   const parallelization = Number(parts[3].split("=")[1]);
-  const salt = Buffer.from(parts[4], "base64url");
-  const hashBuffer = Buffer.from(parts[5], "base64url");
 
   if (
     !Number.isFinite(cost) ||
     !Number.isFinite(blockSize) ||
     !Number.isFinite(parallelization) ||
+    cost > SCRYPT_MAX_COST ||
+    blockSize > SCRYPT_MAX_BLOCK_SIZE ||
+    parallelization > SCRYPT_MAX_PARALLELIZATION ||
+    parts[4].length > MAX_SALT_SECTION ||
+    parts[5].length > MAX_HASH_SECTION
+  ) {
+    return null;
+  }
+
+  const salt = Buffer.from(parts[4], "base64url");
+  const hashBuffer = Buffer.from(parts[5], "base64url");
+
+  if (
     !salt.length ||
-    !hashBuffer.length
+    !hashBuffer.length ||
+    salt.length > 96 ||
+    hashBuffer.length > SCRYPT_MAX_KEY_LENGTH
   ) {
     return null;
   }
@@ -123,19 +160,42 @@ export function validateScryptOptions(options: ScryptOptions): void {
   if (!Number.isInteger(cost) || cost < 2 || (cost & (cost - 1)) !== 0) {
     throw new PasswordOptionsError(`scrypt.cost must be a power of two >= 2 (got ${cost}).`);
   }
+  if (cost > SCRYPT_MAX_COST) {
+    throw new PasswordOptionsError(
+      `scrypt.cost must be <= ${SCRYPT_MAX_COST} (DoS guard, got ${cost}).`
+    );
+  }
   if (!Number.isInteger(blockSize) || blockSize < 1) {
     throw new PasswordOptionsError(`scrypt.blockSize must be an integer >= 1 (got ${blockSize}).`);
+  }
+  if (blockSize > SCRYPT_MAX_BLOCK_SIZE) {
+    throw new PasswordOptionsError(
+      `scrypt.blockSize must be <= ${SCRYPT_MAX_BLOCK_SIZE} (DoS guard, got ${blockSize}).`
+    );
   }
   if (!Number.isInteger(parallelization) || parallelization < 1) {
     throw new PasswordOptionsError(
       `scrypt.parallelization must be an integer >= 1 (got ${parallelization}).`
     );
   }
+  if (parallelization > SCRYPT_MAX_PARALLELIZATION) {
+    throw new PasswordOptionsError(
+      `scrypt.parallelization must be <= ${SCRYPT_MAX_PARALLELIZATION} (DoS guard, got ${parallelization}).`
+    );
+  }
   if (!Number.isInteger(keyLength) || keyLength < 1) {
     throw new PasswordOptionsError(`scrypt.keyLength must be an integer >= 1 (got ${keyLength}).`);
   }
+  if (keyLength > SCRYPT_MAX_KEY_LENGTH) {
+    throw new PasswordOptionsError(
+      `scrypt.keyLength must be <= ${SCRYPT_MAX_KEY_LENGTH} (DoS guard, got ${keyLength}).`
+    );
+  }
   if (!Number.isInteger(saltLength) || saltLength < 8) {
     throw new PasswordOptionsError(`scrypt.saltLength must be an integer >= 8 (got ${saltLength}).`);
+  }
+  if (saltLength > 96) {
+    throw new PasswordOptionsError(`scrypt.saltLength must be <= 96 (DoS guard, got ${saltLength}).`);
   }
   if (
     options.maxmem !== undefined &&

@@ -173,6 +173,47 @@ export interface PolicyResult {
 }
 
 /**
+ * One pepper secret in the pepper keyring, identified by a stable,
+ * human-readable id embedded in the `$pepper$<id>$…` marker.
+ *
+ * The id is stored in every hash this secret produces, so verification
+ * can always select the exact secret that produced a hash — that is what
+ * makes real pepper rotation possible (see {@link PasswordConfig.pepper}).
+ */
+export interface PepperKey {
+  /**
+   * Stable identifier (1–32 chars: letters, digits, `_`, `-`).
+   * Convention: the period the secret was introduced, e.g. `"2026-08"`.
+   * Never include secret material in the id.
+   */
+  id: string;
+  /** The pepper secret itself. Never log it; never commit it. */
+  secret: string;
+}
+
+/**
+ * Pepper configuration: a current secret plus optional previous-era
+ * secrets that may still verify legacy hashes.
+ *
+ * - `string` — legacy shorthand: a single current secret whose id is
+ *   derived from the secret (first 8 hex chars of SHA-256). Hashes
+ *   written by Maahes ≤ 1.1 remain verifiable with this form.
+ * - `{ current, previous }` — explicit keyring with human-readable ids
+ *   and full rotation support. New hashes always use `current`; hashes
+ *   marked with a previous id verify against that exact secret.
+ *
+ * Falls back to the `PASSWORD_PEPPER` environment variable when unset.
+ */
+export type PepperConfig =
+  | string
+  | {
+      /** The secret used for every NEW hash. */
+      current: PepperKey;
+      /** Older secrets; hashes marked with one of these ids still verify. */
+      previous?: PepperKey[];
+    };
+
+/**
  * Configuration accepted by the {@link Password} factory. Every field is
  * optional; omitted values fall back to {@link DEFAULT_PASSWORD_CONFIG}.
  */
@@ -180,10 +221,11 @@ export interface PasswordConfig {
   /** Hashing algorithm. Default `"argon2"`. */
   algorithm?: PasswordAlgorithm;
   /**
-   * Site-wide secret mixed into every hash via HMAC-SHA256 (peppering).
+   * Site-wide secret mixed into every hash via HMAC-SHA256 (peppering),
+   * as a single current secret or a full keyring for rotation.
    * Falls back to the `PASSWORD_PEPPER` environment variable when unset.
    */
-  pepper?: string;
+  pepper?: PepperConfig;
   /** Password normalization strategy. Default `"none"`. */
   normalize?: PasswordNormalization;
   /** Argon2id driver options. */

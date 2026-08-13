@@ -11,7 +11,8 @@
 
 import { readFileSync } from "node:fs";
 import { deepMerge } from "../shared/deepMerge";
-import type { PasswordConfig } from "./types";
+import { isValidPepperId, pepperId } from "./detect";
+import type { PasswordConfig, PepperConfig, PepperKey } from "./types";
 
 /**
  * The canonical, fully-populated default configuration of the password
@@ -20,8 +21,8 @@ import type { PasswordConfig } from "./types";
  * (beyond defensive fallbacks), so option handling cannot drift.
  */
 export const DEFAULT_PASSWORD_CONFIG: Required<Omit<PasswordConfig, "pepper">> & {
-  /** Peppering secret; intentionally optional and resolved from the environment as a fallback. */
-  pepper?: string;
+  /** Peppering config; intentionally optional and resolved from the environment as a fallback. */
+  pepper?: PepperConfig;
 } = {
   algorithm: "argon2",
   normalize: "none",
@@ -52,7 +53,7 @@ export const DEFAULT_PASSWORD_CONFIG: Required<Omit<PasswordConfig, "pepper">> &
     minDigits: 0,
     minSymbols: 0,
     minEntropy: 0,
-    allowedScripts: ["Latin"],
+    allowedScripts: ["Any"],
     blockWhitespace: true,
     blockedPasswords: [],
     customRules: [],
@@ -115,16 +116,107 @@ export function parseConfigInput(input?: PasswordConfig | string): PasswordConfi
 }
 
 /**
+ * A resolved pepper keyring: the exact secret set a module can verify
+ * against. `current` produces every new hash; `previous` only verifies.
+ */
+export interface PepperRing {
+  /** The secret used for all new hashes. */
+  current: PepperKey;
+  /** Older secrets that may still verify legacy marked hashes. */
+  previous: PepperKey[];
+}
+
+/**
+ * Resolves the pepper configuration (config value, string shorthand or
+ * environment fallback) into a validated {@link PepperRing}.
+ *
+ * Rules:
+ * - a plain string is treated as the current secret with a derived id
+ *   (first 8 hex chars of SHA-256 — the marker format used by
+ *   Maahes ≤ 1.1, so existing hashes keep verifying);
+ * - explicit keyring entries require a well-formed id and a non-empty
+ *   secret; ids must be unique (no duplicates, no reuse of the current id
+ *   among previous entries);
+ * - no secret material ever appears in validation error messages.
+ *
+ * @param pepper - The user-provided pepper configuration (may be `undefined`).
+ * @param env - The `PASSWORD_PEPPER` environment fallback.
+ * @returns The resolved ring, or `undefined` when no pepper is configured.
+ * @throws {PasswordOptionsError} When the pepper configuration is invalid.
+ */
+export function resolvePepper(
+  pepper: PepperConfig | undefined,
+  env: string | undefined
+): PepperRing | undefined {
+  if (pepper === undefined || pepper === null) {
+    if (env !== undefined && env !== "") {
+      return { current: { id: pepperId(env), secret: env }, previous: [] };
+    }
+    return undefined;
+  }
+
+  if (typeof pepper === "string") {
+    if (pepper.length === 0) {
+      throw new PasswordOptionsError("password.pepper must be a non-empty string.");
+    }
+    return { current: { id: pepperId(pepper), secret: pepper }, previous: [] };
+  }
+
+  if (typeof pepper !== "object" || Array.isArray(pepper)) {
+    throw new PasswordOptionsError(
+      "password.pepper must be a string or an object with a 'current' key."
+    );
+  }
+
+  const validateKey = (key: unknown, path: string): PepperKey => {
+    if (typeof key !== "object" || key === null || Array.isArray(key)) {
+      throw new PasswordOptionsError(`${path} must be an object with 'id' and 'secret'.`);
+    }
+    const { id, secret } = key as Record<string, unknown>;
+    if (typeof id !== "string" || !isValidPepperId(id)) {
+      throw new PasswordOptionsError(
+        `${path}.id must be a string of 1-32 characters (letters, digits, '_' or '-').`
+      );
+    }
+    if (typeof secret !== "string" || secret.length === 0) {
+      throw new PasswordOptionsError(`${path}.secret must be a non-empty string.`);
+    }
+    return { id, secret };
+  };
+
+  const current = validateKey(pepper.current, "password.pepper.current");
+
+  const previousInput = pepper.previous;
+  if (previousInput !== undefined && !Array.isArray(previousInput)) {
+    throw new PasswordOptionsError("password.pepper.previous must be an array of pepper keys.");
+  }
+
+  const previous: PepperKey[] = [];
+  const seen = new Set<string>([current.id]);
+  for (const [index, key] of (previousInput ?? []).entries()) {
+    const validated = validateKey(key, `password.pepper.previous[${index}]`);
+    if (seen.has(validated.id)) {
+      throw new PasswordOptionsError(
+        `password.pepper.previous contains a duplicate pepper id "${validated.id}".`
+      );
+    }
+    seen.add(validated.id);
+    previous.push(validated);
+  }
+
+  return { current, previous };
+}
+
+/**
  * Merges user configuration over {@link DEFAULT_PASSWORD_CONFIG} with a
  * deep merge (nested objects merge field-by-field; arrays and primitives
- * replace). The pepper secret resolves from the config or the
- * `PASSWORD_PEPPER` environment variable.
+ * replace). The pepper secret is left untouched here — it is resolved by
+ * {@link resolvePepper} so the keyring can fall back to the
+ * `PASSWORD_PEPPER` environment variable and validate at construction.
  *
  * @param user - Raw user configuration; every omitted field falls back to defaults.
  * @returns The fully-resolved configuration.
  */
 export function mergeConfig(user: PasswordConfig = {}): PasswordConfig {
-  const merged = deepMerge(DEFAULT_PASSWORD_CONFIG, user);
-  merged.pepper = user.pepper ?? process.env.PASSWORD_PEPPER;
-  return merged;
+  return deepMerge(DEFAULT_PASSWORD_CONFIG, user);
 }

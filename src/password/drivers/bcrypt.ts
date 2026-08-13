@@ -7,6 +7,11 @@
  * construction time and optionally pre-hashes inputs with SHA-256
  * (`preHash`) to eliminate the truncation limit.
  *
+ * DoS guard: verification parses the cost factor of ANY stored hash and
+ * rejects hashes outside the 4..31 range before the (potentially very
+ * expensive) comparison runs — a crafted hash with absurd rounds never
+ * reaches the native implementation.
+ *
  * NOTE: when `preHash` is enabled the resulting hashes are NOT
  * interoperable with standard bcrypt hashes from other systems.
  *
@@ -17,6 +22,11 @@ import bcrypt from "bcrypt";
 import { createHash } from "node:crypto";
 import { PasswordOptionsError } from "../config";
 import type { BcryptOptions, PasswordDriver } from "../types";
+
+/** Minimum accepted cost factor (bcrypt's own floor). */
+export const BCRYPT_MIN_ROUNDS = 4;
+/** Maximum accepted cost factor (bcrypt's own ceiling). */
+export const BCRYPT_MAX_ROUNDS = 31;
 
 /** Matches the leading cost segment of a bcrypt hash regardless of the variant prefix (2a/2b/2y/2x). */
 const BCRYPT_HASH_RE = /^\$(?:2a|2b|2y|2x)\$(\d{2})\$/;
@@ -44,9 +54,9 @@ function getRoundsFromHash(hash: string): number {
 export function validateBcryptOptions(options: BcryptOptions): void {
   const saltRounds = options.saltRounds ?? 12;
 
-  if (!Number.isInteger(saltRounds) || saltRounds < 4 || saltRounds > 31) {
+  if (!Number.isInteger(saltRounds) || saltRounds < BCRYPT_MIN_ROUNDS || saltRounds > BCRYPT_MAX_ROUNDS) {
     throw new PasswordOptionsError(
-      `bcrypt.saltRounds must be an integer between 4 and 31 (got ${saltRounds}).`
+      `bcrypt.saltRounds must be an integer between ${BCRYPT_MIN_ROUNDS} and ${BCRYPT_MAX_ROUNDS} (got ${saltRounds}).`
     );
   }
   if (options.preHash !== undefined && typeof options.preHash !== "boolean") {
@@ -78,8 +88,14 @@ export function createBcryptDriver(options: BcryptOptions = {}): PasswordDriver 
       return bcrypt.hash(prepare(password), saltRounds);
     },
 
-    /** Returns `true` when the password matches; never throws on malformed hashes. */
+    /**
+     * Returns `true` when the password matches; never throws on malformed
+     * hashes. Hashes with a cost factor outside the valid 4..31 range are
+     * rejected before the (potentially expensive) comparison runs.
+     */
     async verify(hash: string, password: string): Promise<boolean> {
+      const rounds = getRoundsFromHash(hash);
+      if (rounds < BCRYPT_MIN_ROUNDS || rounds > BCRYPT_MAX_ROUNDS) return false;
       try {
         return await bcrypt.compare(prepare(password), hash);
       } catch {

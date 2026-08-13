@@ -9,9 +9,11 @@
  * - scrypt:   `$scrypt$N=16384$r=8$p=1$<salt>$<hash>`
  * - Peppered: `$pepper$<id>$<inner-hash>` (any of the above wrapped)
  *
- * Detection makes multi-algorithm migration straighforward (e.g. deciding
- * which driver must verify a legacy hash), and the pepper marker lets
- * `verifyPassword` transparently apply the configured pepper.
+ * The pepper marker embeds the id of the secret that produced the hash
+ * (see {@link PepperKey}), so verification can select the exact secret
+ * from the configured keyring — this is what makes real pepper rotation
+ * possible. Detection makes multi-algorithm migration straightforward
+ * (e.g. deciding which driver must verify a legacy hash).
  *
  * @module password/detect
  */
@@ -21,10 +23,16 @@ import type { PasswordAlgorithm } from "./types";
 
 /** Leading marker segment for peppered hashes. */
 const MARKER_PREFIX = "$pepper$";
-/** Length of the pepper identifier in characters. */
-const PEPPER_ID_LENGTH = 8;
-/** Matches a well-formed peppered hash: `$pepper$<8-hex-id>$<inner>`. */
-const PEPPERED_HASH_RE = /^\$pepper\$[0-9a-f]{8}\$/;
+/** Length of a derived (legacy string-form) pepper id in characters. */
+const DERIVED_ID_LENGTH = 8;
+/**
+ * Matches a well-formed peppered hash: `$pepper$<id>$<inner>` where the
+ * id is 1–32 chars of letters, digits, `_` or `-`. Legacy derived ids
+ * (8 lowercase hex chars) are a subset and keep working.
+ */
+const PEPPERED_HASH_RE = /^\$pepper\$[A-Za-z0-9_-]{1,32}\$/;
+/** Matches a valid pepper id in isolation (validation / tooling). */
+const PEPPER_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
 /**
  * Returns `true` when `hash` carries the pepper marker, i.e. its inner
@@ -35,6 +43,28 @@ const PEPPERED_HASH_RE = /^\$pepper\$[0-9a-f]{8}\$/;
  */
 export function isPepperedHash(hash: string): boolean {
   return PEPPERED_HASH_RE.test(hash);
+}
+
+/**
+ * Returns `true` when `id` is a valid pepper id (1–32 chars of letters,
+ * digits, `_` or `-`).
+ *
+ * @param id - The candidate pepper id.
+ * @returns `true` when the id is well-formed.
+ */
+export function isValidPepperId(id: string): boolean {
+  return PEPPER_ID_RE.test(id);
+}
+
+/**
+ * Extracts the pepper id embedded in a marked hash.
+ *
+ * @param hash - A stored password hash.
+ * @returns The pepper id, or `null` when the hash is not marked.
+ */
+export function extractPepperId(hash: string): string | null {
+  const match = /^\$pepper\$([A-Za-z0-9_-]{1,32})\$/.exec(hash);
+  return match ? match[1] : null;
 }
 
 /**
@@ -68,25 +98,28 @@ export function detectHashAlgorithm(hash: string): PasswordAlgorithm | null {
 }
 
 /**
- * Internal: derives a stable short identifier for a pepper secret by
- * hashing it with SHA-256. The identifier is embedded in the pepper
- * marker so the exact secret used can be identified later (pepper rotation).
+ * Derives a stable short identifier for a pepper secret by hashing it
+ * with SHA-256. Used for the legacy string-form pepper configuration,
+ * whose markers embed this derived id.
+ *
+ * The id reveals nothing about the secret itself (preimage resistance)
+ * and is safe to store next to hashes.
  *
  * @param pepper - The configured pepper secret.
  * @returns The leading 8 hex characters of SHA-256(`pepper`).
  */
 export function pepperId(pepper: string): string {
-  return createHash("sha256").update(pepper, "utf8").digest("hex").slice(0, PEPPER_ID_LENGTH);
+  return createHash("sha256").update(pepper, "utf8").digest("hex").slice(0, DERIVED_ID_LENGTH);
 }
 
 /**
- * Internal: wraps an already-hashed inner hash in the pepper marker,
- * embedding the pepper identifier for later verification and rotation.
+ * Wraps an already-hashed inner hash in the pepper marker, embedding the
+ * given pepper id for later verification and rotation.
  *
- * @param pepper - The configured pepper secret.
+ * @param id - The pepper id that produced `innerHash` (current or previous).
  * @param innerHash - An algorithm-native hash string.
  * @returns `$pepper$<id>$<innerHash>`.
  */
-export function wrapPepperMarker(pepper: string, innerHash: string): string {
-  return `${MARKER_PREFIX}${pepperId(pepper)}$${innerHash}`;
+export function wrapPepperMarker(id: string, innerHash: string): string {
+  return `${MARKER_PREFIX}${id}$${innerHash}`;
 }
