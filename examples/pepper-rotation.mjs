@@ -1,68 +1,61 @@
 #!/usr/bin/env node
 /**
- * Peppering, marker auto-detection and pepper rotation.
+ * Peppering, marker auto-detection and pepper rotation with the keyring.
  *
- * Shows: marker shape, automatic pepper during verifyPassword, legacy
- * unmarked peppered hashes, and a dual-verify rotation window where
- * old-pepper hashes keep working while new hashes use the new secret.
+ * The modern keyring (`current` + optional `previous` secrets) gives
+ * single-module rotation: the new secret is used for every new hash,
+ * the old secret keeps verifying old hashes, and `verifyAndRehash`
+ * transparently re-peppers old hashes onto the current secret.
  * Run:  node examples/pepper-rotation.mjs
  */
 
 import Password, { isPepperedHash, detectHashAlgorithm } from "../dist/index.js";
 
-// ---- Setup: one secret per "era" --------------------------------------------
-const OLD_SECRET = "old-pepper-era";
-const NEW_SECRET = "new-pepper-era";
+// ---- Era 1: hashes written with the old secret ------------------------------
+// The id must match the ring's `previous` entry so the marker routes to it.
+const era1 = Password({ pepper: { current: { id: "2025-b", secret: "old-pepper-era" } } });
+const oldEraHash = await era1.pepperedHashPassword("my-password-3");
+console.log("era-1 hash (old secret):", oldEraHash);
 
-const legacy = Password({ pepper: OLD_SECRET });
-const current = Password({ pepper: NEW_SECRET });
+// ---- Rotation: keyring with the new secret current, old in previous ---------
+const pwd = Password({
+  pepper: {
+    current: { id: "2026-a", secret: "new-pepper-era" },
+    previous: [{ id: "2025-b", secret: "old-pepper-era" }],
+  },
+});
 
 // ---- Hashing and the marker -------------------------------------------------
-const liveHash = await current.pepperedHashPassword("my-password-1");
-console.log("peppered hash  :", liveHash);
+const liveHash = await pwd.pepperedHashPassword("my-password-1");
+console.log("\npeppered hash  :", liveHash);
 console.log("  is marked    :", isPepperedHash(liveHash));
 console.log("  inner algo   :", detectHashAlgorithm(liveHash)); // marker is transparent
 
-// Marker-aware verification: no way to forget the pepper.
-console.log("\nverifyPassword with current pepper:", await current.verifyPassword(liveHash, "my-password-1"));
-console.log("verifyPassword with WRONG pepper :", await legacy.verifyPassword(liveHash, "my-password-1"));
+// Marker-aware verification: the right secret is picked from the ring.
+console.log("\nverifyPassword with current secret:", await pwd.verifyPassword(liveHash, "my-password-1"));
 
 // ---- Legacy: unmarked hash, pepper applied manually (pre-marker era) --------
-// Simulate a hash written before markers existed: HMAC-peppered, stored bare.
+// Unmarked hashes carry no pepper identity - they verify only against a
+// module configured with the exact secret that produced them.
 import { createHmac } from "node:crypto";
-const hmacOld = (pw) => createHmac("sha256", OLD_SECRET).update(pw).digest("hex");
-const bareHash = await legacy.rehashPassword(hmacOld("my-password-2"));
+const hmacOld = (pw) => createHmac("sha256", "old-pepper-era").update(pw).digest("hex");
+const bareHash = await pwd.rehashPassword(hmacOld("my-password-2"));
 
 console.log("\nlegacy bare hash is NOT marked:", isPepperedHash(bareHash));
-console.log("  pepperedVerifyPassword (old-era module):", await legacy.pepperedVerifyPassword(bareHash, "my-password-2"));
-// Unmarked hashes carry no pepper identity - they can ONLY be verified with
-// a module configured with the secret that produced them. A module using a
-// different pepper (e.g. v2 with NEW_SECRET) cannot verify it:
-const v2 = Password({ pepper: NEW_SECRET });
 console.log(
-  "  v2 (new pepper) verify of old-pepper bare hash:",
-  await v2.pepperedVerifyPassword(bareHash, "my-password-2"),
-  "(correct - the pepper differs)"
+  "  ring verify (current, then previous secret):",
+  await pwd.pepperedVerifyPassword(bareHash, "my-password-2")
 );
 
-// ---- Rotation: dual-verify window -------------------------------------------
-const oldEraHash = await legacy.pepperedHashPassword("my-password-3");
-const newEraHash = await current.pepperedHashPassword("my-password-3");
+// ---- Rotation: hashes from the previous era still verify --------------------
+console.log("\nold-era hash verifies via the ring:", await pwd.verifyPassword(oldEraHash, "my-password-3"));
+console.log("  needsRehash (pepper era changed) :", await pwd.needsRehash(oldEraHash));
 
-async function verifyDual(stored, password) {
-  if (await current.verifyPassword(stored, password)) return "current";
-  if (await legacy.verifyPassword(stored, password)) return "legacy-era";
-  return null;
-}
-
-console.log("\n== rotation window ==");
-console.log("old-era hash verifies via :", await verifyDual(oldEraHash, "my-password-3"));
-console.log("new-era hash verifies via :", await verifyDual(newEraHash, "my-password-3"));
-
-// Upgrade an old-era hash the moment its owner logs in.
-if ((await verifyDual(oldEraHash, "my-password-3")) === "legacy-era") {
-  const upgraded = await current.pepperedHashPassword("my-password-3");
-  console.log("  upgraded to new pepper:", upgraded.startsWith("$pepper$"));
-}
-
-console.log("\ndone - peppering & rotation work");
+// ---- verifyAndRehash: one call rotates the stored hash forward --------------
+const outcome = await pwd.verifyAndRehash(oldEraHash, "my-password-3");
+console.log("\nverifyAndRehash on old-era hash:");
+console.log("  valid      :", outcome.valid);
+console.log("  new hash   :", outcome.newHash);
+console.log("  re-peppered:", outcome.newHash !== oldEraHash);
+console.log("  current era:", outcome.newHash.startsWith("$pepper$2026-a$"));
+console.log("  still verifies:", await pwd.verifyPassword(outcome.newHash, "my-password-3"));

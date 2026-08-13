@@ -4,17 +4,19 @@
  *
  * Exercises the password module exactly as a consumer would: hashing and
  * verifying with every algorithm, policy enforcement with custom rules,
- * peppering with the marker, entropy estimation, hash-format detection and
- * the login-time rehash flow. Then exercises the CORS module: preflight
- * and simple-request headers, glob/per-origin credentials, deny policies,
- * Vary merging, the middleware and the fetch wrapper. Runs against
- * `dist/` under BOTH Node.js (`npm run smoke:node`) and Bun
- * (`npm run smoke:bun`) to prove runtime compatibility.
+ * keyring peppering with marker auto-detection and rotation, entropy
+ * estimation and the login-time rehash flow. Then exercises the CORS
+ * module: preflight and simple-request headers, glob/per-origin
+ * credentials, deny policies, Vary merging, the middleware and the fetch
+ * wrapper. Finally exercises the SecurityHeaders module: preset defaults,
+ * overwrite/remove semantics, secure-context HSTS, and both runtime
+ * adapters. Runs against `dist/` under BOTH Node.js (`npm run smoke:node`)
+ * and Bun (`npm run smoke:bun`) to prove runtime compatibility.
  *
  * Exits non-zero on the first failed assertion.
  */
 
-import { Password, Cors, detectHashAlgorithm, estimateEntropy, PasswordPolicyError } from "../dist/index.js";
+import { Password, Cors, SecurityHeaders, detectHashAlgorithm, estimateEntropy, PasswordPolicyError } from "../dist/index.js";
 
 let checks = 0;
 
@@ -64,11 +66,25 @@ async function run() {
     assert(err instanceof PasswordPolicyError, "policy: throws PasswordPolicyError");
   }
 
-  // 3) Peppering with the auto-detect marker.
-  const peppered = Password({ pepper: process.env.PASSWORD_PEPPER ?? "smoke-pepper" });
+  // 3) Peppering with the keyring: rotation + auto-detect marker.
+  const era1 = Password({ pepper: { current: { id: "smoke-old", secret: "smoke-old-secret" } } });
+  const oldHash = await era1.pepperedHashPassword("pepper-me-123");
+  assert(oldHash.startsWith("$pepper$"), "pepper: marker present");
+
+  const peppered = Password({
+    pepper: {
+      current: { id: "smoke-new", secret: "smoke-new-secret" },
+      previous: [{ id: "smoke-old", secret: "smoke-old-secret" }],
+    },
+  });
   const phash = await peppered.pepperedHashPassword("pepper-me-123");
-  assert(phash.startsWith("$pepper$"), "pepper: marker present");
+  assert(phash.startsWith("$pepper$"), "pepper: marker present on new hashes");
   assert(await peppered.verifyPassword(phash, "pepper-me-123"), "pepper: auto-verify on marker");
+  assert(await peppered.verifyPassword(oldHash, "pepper-me-123"), "pepper: previous-era hash still verifies");
+  assert(await peppered.needsRehash(oldHash), "pepper: previous-era hash needs rehash");
+  const rotated = await peppered.verifyAndRehash(oldHash, "pepper-me-123");
+  assert(rotated.valid && rotated.newHash !== oldHash, "pepper: verifyAndRehash re-peppers to current era");
+  assert(await peppered.verifyPassword(rotated.newHash, "pepper-me-123"), "pepper: rotated hash verifies");
 
   // 4) Entropy utility.
   assert(estimateEntropy("aaaaaaaa") < estimateEntropy("aA1!aA1!"), "entropy: mixed classes score higher");
@@ -168,6 +184,47 @@ async function run() {
   );
   assert(response !== undefined && (await response.text()) === "ok", "cors: fetch wrapper returned handler body");
   assert(response.headers.get("Access-Control-Allow-Origin") === "https://app.example.com", "cors: fetch wrapper decorated response");
+
+  // 8) SecurityHeaders: engine, middleware and fetch surfaces.
+  const secHeaders = SecurityHeaders({ preset: "strict", remove: ["Server"] });
+
+  const plan = secHeaders.build({ secure: true, existing: { Server: "nginx", "X-Frame-Options": "SAMEORIGIN" } });
+  assert(plan.headers["X-Frame-Options"] === "DENY", "headers: overwrite default wins");
+  assert(plan.headers["Strict-Transport-Security"] === "max-age=31536000; includeSubDomains", "headers: HSTS on secure");
+  assert(plan.headers["Cross-Origin-Resource-Policy"] === "same-origin", "headers: strict preset CORP");
+  assert(plan.headers["Content-Security-Policy"] === undefined, "headers: CSP never emitted");
+  assert(plan.removed.includes("Server"), "headers: remove planned");
+
+  const insecure = secHeaders.build({ secure: false });
+  assert(insecure.headers["Strict-Transport-Security"] === undefined, "headers: HSTS withheld on insecure");
+  assert(SecurityHeaders().build().headers["X-Content-Type-Options"] === "nosniff", "headers: default preset nosniff");
+
+  const resHeaders = {};
+  const res = {
+    setHeader: (n, v) => (resHeaders[n] = v),
+    removeHeader: (n) => delete resHeaders[n],
+    getHeaders: () => ({ ...resHeaders }),
+  };
+  let hNext = false;
+  secHeaders.middleware()(
+    { socket: { encrypted: true }, headers: { "x-forwarded-proto": "https" } },
+    res,
+    () => {
+      hNext = true;
+    }
+  );
+  assert(hNext, "headers: middleware always calls next");
+  assert(resHeaders["Strict-Transport-Security"] === "max-age=31536000; includeSubDomains", "headers: middleware HSTS via socket");
+  assert(resHeaders["X-Content-Type-Options"] === "nosniff", "headers: middleware applied");
+
+  const secHandle = secHeaders.fetchHandler(async (request) => {
+    assert(request.url.startsWith("https://"), "headers: fetch handler receives https request");
+    return new Response("ok", { status: 200, headers: { Server: "x", "X-Frame-Options": "SAMEORIGIN" } });
+  });
+  const hresp = await secHandle(new Request("https://api.example.com/"));
+  assert((await hresp.text()) === "ok", "headers: fetch wrapper returned handler body");
+  assert(hresp.headers.get("X-Frame-Options") === "DENY", "headers: fetch wrapper overwrite");
+  assert(hresp.headers.get("Server") === null, "headers: fetch wrapper removal");
 
   console.log(`\nSMOKE OK: ${checks} checks passed (${process.execPath})`);
   process.exit(0);
