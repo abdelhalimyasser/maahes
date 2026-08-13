@@ -10,10 +10,10 @@
  * Determinism contract: the same configuration and context ALWAYS
  * produce the same plan — safe to snapshot, cache and test.
  *
- * CSP NOTE: this engine deliberately NEVER emits
- * `Content-Security-Policy`. Position 1 in the emission order is
- * reserved for the future dedicated `src/csp/` module; consumers must
- * not expect CSP here.
+ * CSP NOTE: `Content-Security-Policy` is only emitted when the
+ * configuration explicitly provides one (`headers.csp`), resolved via
+ * the dedicated `src/csp/` module. Position 1 in the emission order is
+ * reserved for it; without a policy, no CSP header is produced.
  *
  * @module headers/core
  */
@@ -23,7 +23,8 @@ import type { ResolvedSecurityHeadersConfig } from "./config";
 
 /** Canonical emission order of the known security headers. */
 export const KNOWN_HEADER_ORDER = [
-  // Reserved position 1: Content-Security-Policy (future src/csp module).
+  "Content-Security-Policy",
+  "Content-Security-Policy-Report-Only",
   "Strict-Transport-Security",
   "X-Content-Type-Options",
   "X-Frame-Options",
@@ -121,6 +122,13 @@ export function buildHeaderSet(
     }
     result[name] = value;
   };
+
+    if (config.csp) {
+    emit(
+      config.csp.reportOnly ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy",
+      config.csp.policy
+    );
+  }
 
   const hstsEmitted = config.hsts !== false && (config.httpsOnly === false || secure);
   if (hstsEmitted && config.hsts) {

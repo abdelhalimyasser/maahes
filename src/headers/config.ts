@@ -16,6 +16,9 @@ import { readFileSync } from "node:fs";
 import { deepMerge } from "../shared/deepMerge";
 import { KNOWN_HEADER_ORDER } from "./core";
 import { SecurityHeadersOptionsError } from "./errors";
+import { cspPolicyOf, parseCspConfigInput, resolveCspConfig } from "../csp/config";
+import { parseCsp, serializeCsp } from "../csp/core";
+import { CspOptionsError } from "../csp/errors";
 import type {
   HstsConfig,
   ReferrerPolicyValue,
@@ -30,6 +33,7 @@ export const DEFAULT_HEADERS_CONFIG: ResolvedSecurityHeadersConfig = {
   overwrite: true,
   remove: [],
   extra: {},
+  csp: false,
   nosniff: true,
   frameOptions: "DENY",
   referrerPolicy: "strict-origin-when-cross-origin",
@@ -84,6 +88,7 @@ export interface ResolvedSecurityHeadersConfig {
   overwrite: boolean;
   remove: string[];
   extra: Record<string, string>;
+  csp: { policy: string; reportOnly: boolean } | false;
   nosniff: boolean;
   frameOptions: "DENY" | "SAMEORIGIN" | false;
   referrerPolicy: ReferrerPolicyValue | false;
@@ -278,6 +283,48 @@ export function validateConfig(config: ResolvedSecurityHeadersConfig): void {
 }
 
 /**
+ * Resolves a `csp` option into the engine's static form: a validated,
+ * canonicalized policy string (plus its report-only flag).
+ *
+ * @param csp - `CspConfig`, serialized policy string, or `false`.
+ * @returns The resolved CSP or `false`.
+ * @throws {SecurityHeadersOptionsError} On invalid policies or nonce
+ *   templates (SecurityHeaders has no per-request nonce channel).
+ */
+function resolveCspOption(csp: SecurityHeadersConfig["csp"]): ResolvedSecurityHeadersConfig["csp"] {
+  if (csp === undefined || csp === false) return false;
+
+  try {
+    let policy: string;
+    let reportOnly: boolean;
+
+    if (typeof csp === "string") {
+      const parsed = parseCsp(csp); // strict: throws CspOptionsError on hostile input
+      policy = serializeCsp(parsed.directives);
+      reportOnly = false;
+    } else {
+      const resolved = resolveCspConfig(parseCspConfigInput(csp));
+      policy = cspPolicyOf(resolved);
+      reportOnly = resolved.reportOnly;
+    }
+
+    if (policy.includes("$nonce")) {
+      throw new SecurityHeadersOptionsError(
+        "headers.csp cannot use 'nonce-$nonce' templates (no per-request nonce channel) — use the Csp module instead."
+      );
+    }
+
+    return { policy, reportOnly };
+  } catch (error) {
+    // CSP policy errors surface through the headers channel's own error type.
+    if (error instanceof CspOptionsError) {
+      throw new SecurityHeadersOptionsError(`headers.csp: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+/**
  * Resolves the effective configuration: defaults → preset → user
  * overrides (deep merged, so partial configs keep every untouched
  * default), then validated.
@@ -298,6 +345,8 @@ export function resolveHeadersConfig(user: SecurityHeadersConfig = {}): Resolved
     base as unknown as Record<string, unknown>,
     user as unknown as Partial<Record<string, unknown>>
   ) as unknown as ResolvedSecurityHeadersConfig;
+
+  merged.csp = resolveCspOption(user.csp);
 
   validateConfig(merged);
   return merged;

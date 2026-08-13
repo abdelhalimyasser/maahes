@@ -156,6 +156,18 @@ export interface SecurityHeadersConfig {
   dnsPrefetchControl?: boolean;
   /** `Origin-Agent-Cluster: ?1` — optional hardening. Default `false`. */
   originAgentCluster?: boolean;
+  /**
+   * Content Security Policy, emitted first in the canonical header
+   * order. Accepts a `CspConfig`, a serialized policy string
+   * (`"default-src 'self'"`), or `false` (default — CSP is not emitted
+   * without an explicit policy; there is no CSP "default" that fits
+   * every app).
+   *
+   * `'nonce-$nonce'` templates are NOT allowed here (SecurityHeaders
+   * has no per-request nonce channel) — use the dedicated `Csp` module
+   * for nonce-based policies.
+   */
+  csp?: import("../csp/types").CspConfig | string | false;
 }
 
 /**
