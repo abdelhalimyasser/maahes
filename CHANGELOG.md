@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-08-13
+
+### Added
+
+- **CORS module** (`Cors()` factory, exported from the package root):
+  - Origin rules: wildcard, exact strings, globs
+    (`https://*.example.com`), `RegExp`, dynamic callbacks and the
+    literal `"null"` origin (opt-in via `allowNullOrigin`).
+  - Per-origin credentials via `{ pattern, credentials }` rules;
+    credentials-safe `*` reflection.
+  - Preflight handling with `"auto" | "always" | "never"` modes,
+    method/header subset validation, `optionsSuccessStatus`,
+    `Access-Control-Max-Age`, and requested-header reflection.
+  - Private Network Access support (`allowPrivateNetwork`).
+  - Two deny policies: omit headers (browser enforces) or hard-block
+    via `failureStatus`; `onBlock` / `onPreflight` hooks.
+  - `Vary` merging — framework tokens preserved, no duplicates.
+  - Four consumption surfaces: pure `process`/`processAsync`,
+    Connect/Express middleware, raw `node:http` handler, and a
+    Web-standard `fetchHandler` (Bun, Node ≥ 18, edge).
+  - `preset: "express"` for npm-`cors` compatibility in one line.
+  - Deterministic output: sorted headers, canonical method order,
+    fixed emission order.
+  - Construction-time validation (`CorsOptionsError`); config from
+    object, JSON string, or JSON file (`{"cors": …}` unwrapped).
+- **Documentation**: `docs/cors.md` reference, hub + README module
+  tables updated, `examples/cors-server.mjs` and
+  `examples/cors-fetch.mjs`.
+- **Tooling**: CORS suite (92 tests, 178 total), smoke checks extended.
+
 ## [1.0.0] - 2026-08-13
 
 ### Added

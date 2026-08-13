@@ -87,13 +87,33 @@ const hash = await pwd.hashPassword("Signup!Password1"); // throws if policy vio
 | Module | Status | Docs |
 | --- | --- | --- |
 | `Password` | ✅ shipped | [Getting started](docs/getting-started.md) · [Module reference](docs/password.md) |
-| CORS / CSRF / CSP / XSS / headers / rate limiting / secrets / hashing / encryption / audit | 🚧 planned | — |
+| `Cors` | ✅ shipped | [Module reference](docs/cors.md) · [Examples](examples/) |
+| CSRF / CSP / XSS / headers / rate limiting / secrets / hashing / encryption / audit | 🚧 planned | — |
+
+## Quick look at `Cors`
+
+```ts
+import { Cors } from "@maahes/core";
+
+const cors = Cors({
+  origin: ["https://app.example.com", "https://*.example.com"],
+  credentials: true,
+});
+
+app.use(cors.middleware());            // Express / Connect
+// or raw node:  http.createServer(cors.middleware())
+// or fetch:     server.fetch = cors.fetchHandler(route)
+```
+
+Origin globs, per-origin credentials, Private Network Access, `Vary`
+merging and Express-compatible presets — see [docs/cors.md](docs/cors.md).
 
 ## Documentation
 
 - [docs/index.md](docs/index.md) — hub + module index
 - [Getting started](docs/getting-started.md) — install, runtimes, conventions, errors
 - [`Password` module reference](docs/password.md) — API, algorithms, policy, peppering, flows
+- [`Cors` module reference](docs/cors.md) — API, configs, presets, flows
 - [Security guidelines](docs/security.md) — hardening checklist, threat model
 - [Examples](examples/) — runnable end-to-end scripts (Node and Bun)
 
@@ -103,7 +123,7 @@ same layout (see the hub for the roadmap).
 ## Development
 
 ```bash
-bun test            # 86 unit + integration tests
+bun test            # 178 unit + integration tests
 npm run typecheck   # tsc --noEmit
 npm run build       # tsup → dist/ (ESM + CJS + .d.ts)
 npm run smoke:node  # end-to-end checks against dist/ on Node.js
