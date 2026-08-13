@@ -14,6 +14,7 @@
 
 import { readFileSync } from "node:fs";
 import { deepMerge } from "../shared/deepMerge";
+import { MaahesOptionsError } from "../shared/errors";
 import type { CorsConfig, CorsOriginRule } from "./types";
 
 /** The canonical, fully-populated default CORS configuration. */
@@ -69,7 +70,7 @@ const PRESETS: Record<NonNullable<CorsConfig["preset"]>, Partial<CorsConfig>> = 
  * Thrown at construction time when a CORS option is out of range, of the
  * wrong type or references an unknown enum value.
  */
-export class CorsOptionsError extends Error {
+export class CorsOptionsError extends MaahesOptionsError {
   constructor(message: string) {
     super(message);
     this.name = "CorsOptionsError";

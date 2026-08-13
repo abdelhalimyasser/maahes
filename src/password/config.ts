@@ -11,6 +11,7 @@
 
 import { readFileSync } from "node:fs";
 import { deepMerge } from "../shared/deepMerge";
+import { MaahesOptionsError } from "../shared/errors";
 import { isValidPepperId, pepperId } from "./detect";
 import type { PasswordConfig, PepperConfig, PepperKey } from "./types";
 
@@ -66,7 +67,7 @@ export const DEFAULT_PASSWORD_CONFIG: Required<Omit<PasswordConfig, "pepper">> &
  * the wrong type (e.g. `bcrypt: { saltRounds: 99 }`). Failing fast here
  * prevents subtle runtime failures while hashing.
  */
-export class PasswordOptionsError extends Error {
+export class PasswordOptionsError extends MaahesOptionsError {
   constructor(message: string) {
     super(message);
     this.name = "PasswordOptionsError";

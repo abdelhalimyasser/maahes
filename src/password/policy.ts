@@ -17,6 +17,7 @@ import type {
   PolicyResult,
   PolicyViolation,
 } from "./types";
+import { MaahesError } from "../shared/errors";
 
 /** Matches any letter of the Arabic script. */
 const ARABIC_RE = /\p{Script=Arabic}/u;
@@ -119,7 +120,7 @@ function compilePolicy(policy: Required<PasswordPolicyOptions>): CompiledPolicy 
  * `policy.enforceOnHash` is enabled and the candidate password violates
  * the policy. Carries the structured violation list for error reporting.
  */
-export class PasswordPolicyError extends Error {
+export class PasswordPolicyError extends MaahesError {
   /** Every violated rule, in evaluation order. */
   violations: PolicyViolation[];
 
