@@ -10,4 +10,5 @@
  */
 
 export * from "./password";
+export * from "./cors";
 export { Password as default } from "./password";
