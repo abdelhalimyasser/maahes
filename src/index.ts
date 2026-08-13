@@ -12,4 +12,5 @@
 export * from "./password";
 export * from "./cors";
 export * from "./headers";
+export * from "./shared";
 export { Password as default } from "./password";
