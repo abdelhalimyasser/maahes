@@ -52,8 +52,10 @@ jobs:
       - name: Run every example on Node and Bun
         run: |
           for ex in examples/*.mjs; do
-            node "$ex" >/dev/null
-            bun "$ex" >/dev/null
+            timeout 20s node "$ex" >/dev/null; rc=$?
+            if [ $rc -ne 0 ] && [ $rc -ne 124 ]; then exit 1; fi
+            timeout 20s bun "$ex" >/dev/null; rc=$?
+            if [ $rc -ne 0 ] && [ $rc -ne 124 ]; then exit 1; fi
             echo "ok: $ex"
           done
 

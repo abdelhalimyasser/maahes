@@ -1,0 +1,25 @@
+name: Question
+description: Ask about behavior, configuration, or design decisions
+title: "[question] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before asking, check the docs — especially
+        [docs/faq.md](../../docs/faq.md) and the module docs
+        ([password](../../docs/password.md), [cors](../../docs/cors.md),
+        [headers](../../docs/headers.md), [csp](../../docs/csp.md)).
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do, and what have you tried?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Optional — package version or commit
+      placeholder: "1.3.0"

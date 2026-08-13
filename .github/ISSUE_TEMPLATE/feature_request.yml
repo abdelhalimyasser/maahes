@@ -1,0 +1,56 @@
+name: Feature request
+description: Suggest a module, option, or behavior
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Maahes ships deterministic, fail-fast,
+        battle-tested primitives — proposals are weighed against that
+        bar (see [docs/contributing.md](../../docs/contributing.md)).
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Problem
+      description: What problem are you solving, and for whom? Concrete scenarios help.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: API sketch — factory name, options, expected behavior.
+      placeholder: |
+        New module: RateLimit(...)
+        or
+        New option on SecurityHeaders: ...
+      render: typescript
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: What does this change?
+      options:
+        - New module
+        - New option on an existing module
+        - Behavior change to an existing option
+        - Documentation / examples
+    validations:
+      required: true
+  - type: textarea
+    id: contract
+    attributes:
+      label: Contract fit
+      description: How does it stay deterministic (no ambient state, fixed output order), fail fast on config, and fail safe on input? How is it tested?
+    validations:
+      required: false
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and the roadmap (docs/index.md) first
+        - label: I'm willing to implement it (or help test it)

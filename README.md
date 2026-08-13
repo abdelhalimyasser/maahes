@@ -71,17 +71,24 @@ platform-specific setup (native `argon2` ships prebuilt binaries):
 - [docs/index.md](docs/index.md) — hub + module index
 - [Getting started](docs/getting-started.md) — install, runtimes, conventions, errors
 - [Configuration](docs/configuration.md) — the shared config contract
-- [`Password`](docs/password.md) · [`Cors`](docs/cors.md) · [`SecurityHeaders`](docs/headers.md)
+- [`Password`](docs/password.md) · [`Cors`](docs/cors.md) · [`SecurityHeaders`](docs/headers.md) · [`Csp`](docs/csp.md)
 - [Security guidelines](docs/security.md) — hardening checklist
 - [Security model](docs/security-model.md) · [Threat model](docs/threat-model.md)
 - [Migration runbooks](docs/migration.md) — pepper rotation, algorithm upgrades
 - [FAQ](docs/faq.md) — deliberate decisions and common questions
 - [Examples](examples/) — runnable end-to-end scripts (Node and Bun)
 
+## Contributing
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — process and ground rules
+- [docs/contributing.md](docs/contributing.md) — the engineering bar
+- [SECURITY.md](SECURITY.md) — private vulnerability reporting
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — community standards
+
 ## Development
 
 ```bash
-bun test            # 305 unit + integration tests (3 modules, incl. adversarial suites)
+bun test            # 356 unit + integration tests (4 modules, incl. adversarial suites)
 npm run typecheck   # tsc --noEmit
 npm run build       # tsup → dist/ (ESM + CJS + .d.ts)
 npm run smoke:node  # end-to-end checks against dist/ on Node.js
