@@ -20,11 +20,14 @@ no platform setup.
 ## Quick start
 
 ```ts
-import Password from "@maahes/core";
+import Password, { Cors, SecurityHeaders } from "@maahes/core";
 
 const pwd = Password();                                  // Argon2id, defaults
 const hash = await pwd.hashPassword("S3cure!Pass-2024"); // signup
 const ok   = await pwd.verifyPassword(hash, "S3cure!Pass-2024"); // login → true
+
+app.use(Cors({ origin: ["https://app.example.com"] }).middleware());
+app.use(SecurityHeaders({ preset: "default" }).middleware());
 ```
 
 ```js
@@ -35,7 +38,8 @@ const { Password } = require("@maahes/core");
 ## Conventions used by every module
 
 **1. Factory + immutable instance.** Create once at boot, share everywhere
-(thread-safe). `Password(input)` accepts:
+(thread-safe). Every factory — `Password`, `Cors`, `SecurityHeaders` —
+accepts:
 
 ```ts
 Password();                          // all defaults
@@ -44,16 +48,18 @@ Password('{"algorithm":"scrypt"}');  // inline JSON
 Password("./password.config.json");  // file path ({"password": {...}} wrapper optional)
 ```
 
-Every omitted field falls back to `DEFAULT_PASSWORD_CONFIG` (exported for
-introspection). Nested objects merge field-by-field; arrays/primitives replace.
+Every omitted field falls back to the module's `DEFAULT_*_CONFIG`
+(exported for introspection). Nested objects merge field-by-field;
+arrays/primitives replace. See [configuration.md](configuration.md).
 
-**2. Errors are structured and catchable.**
+**2. Errors are structured and catchable** — every module error extends
+the shared `MaahesError` base (option errors extend `MaahesOptionsError`):
 
 | Error | When | Example trigger |
 | --- | --- | --- |
-| `Error` | bad input / unknown algorithm / missing pepper | `Password({ algorithm: "md5" })` |
-| `PasswordOptionsError` | option out of range, at construction | `Password({ bcrypt: { saltRounds: 99 } })` |
+| `MaahesOptionsError` subclasses (`PasswordOptionsError`, `CorsOptionsError`, `SecurityHeadersOptionsError`) | option out of range, at construction | `Password({ bcrypt: { saltRounds: 99 } })` |
 | `PasswordPolicyError` | policy violated with `enforceOnHash: true`; has `.violations` | `await pwd.hashPassword("short")` |
+| `Error` | bad input / unknown algorithm / missing pepper | `Password({ algorithm: "md5" })` |
 
 **3. Verification never throws.** Wrong password, corrupt/foreign hash →
 `false`. Only peppered operations without a configured pepper throw (that
@@ -72,10 +78,13 @@ config changes:
 | argon2 | `$argon2id$v=19$m=65536,t=3,p=1$<salt>$<hash>` |
 | bcrypt | `$2b$12$<salt><hash>` |
 | scrypt | `$scrypt$N=16384$r=8$p=1$<salt>$<hash>` |
-| peppered | `$pepper$<8-hex-id>$<any of the above>` |
+| peppered | `$pepper$<id>$<any of the above>` — the id routes to the right secret in the keyring |
 
 ## Next steps
 
-- [password.md](password.md) — the shipped module
+- [configuration.md](configuration.md) — shared config contract
+- [password.md](password.md) — hashing, policy, peppering
+- [cors.md](cors.md) — cross-origin rules
+- [headers.md](headers.md) — security headers on every response
 - [security.md](security.md) — production hardening
 - [examples](../examples/) — `node examples/registration-login.mjs`

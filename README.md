@@ -2,26 +2,29 @@
 
 **Maahes** is a security toolkit for **Node.js ≥ 18** and **Bun**, shipped
 as ESM + CJS with TypeScript declarations. It gives application developers
-battle-tested security primitives with sane defaults, a zero-surprise API
-and first-class documentation.
+battle-tested security primitives with sane defaults, deterministic
+output and first-class documentation.
 
-The first shipped module is **`Password`** — a complete password-hashing
-and policy toolkit:
+## Modules
 
-- **Three algorithms** — Argon2id (default), bcrypt and scrypt — with the
-  full option surface of each, validated at construction time.
-- **Peppering** — HMAC-SHA256 site-secret mixing with a self-describing
-  `$pepper$` marker; rotation-ready, immune to "forgot to pepper" bugs.
-- **Policy engine** — lengths, character-class minimums, Unicode script
-  whitelists, blocklists, entropy floors and fully **custom rules**.
-- **Login-time rehashing** — `verifyAndRehash` upgrades outdated hashes
-  the moment a user logs in; no migration scripts required.
-- **OWASP-aligned extras** — NFKC normalization, code-point-aware
-  validation, constant-time verification, fail-fast configuration.
+| Module | Status | What it does |
+| --- | --- | --- |
+| [`Password`](docs/password.md) | ✅ 1.2.0 | Argon2id / bcrypt / scrypt hashing, Unicode-aware policy engine, keyring peppering with rotation |
+| [`Cors`](docs/cors.md) | ✅ 1.1.0 | Origin rules & globs, per-origin credentials, PNA, Express/node/fetch adapters, `Vary` merging |
+| [`SecurityHeaders`](docs/headers.md) | ✅ 1.2.0 | Deterministic header engine with presets, HSTS semantics, middleware + fetch adapters |
+| CSRF · CSP · XSS · hashing · encryption · rate limiting · secrets · audit | 🚧 planned | each ships with the same contracts (see [roadmap](docs/index.md)) |
 
-More modules (CORS, CSRF, CSP, XSS, headers, rate limiting, …) are planned.
+```ts
+import Password, { Cors, SecurityHeaders } from "@maahes/core";
 
----
+// Passwords
+const pwd = Password();                          // Argon2id, sane defaults
+const hash = await pwd.hashPassword("Tr0ub4dor&3-G00d");
+
+// Responses
+app.use(Cors({ origin: ["https://app.example.com"] }).middleware());
+app.use(SecurityHeaders({ preset: "strict" }).middleware());
+```
 
 ## Install
 
@@ -29,101 +32,51 @@ More modules (CORS, CSRF, CSP, XSS, headers, rate limiting, …) are planned.
 npm install @maahes/core
 ```
 
-Works out of the box on **Node.js** and **Bun** (no transpilers, no
-platform-specific setup — `argon2` and `bcrypt` ship prebuilt binaries):
+Works out of the box on **Node.js** and **Bun** — no transpilers, no
+platform-specific setup (native `argon2` ships prebuilt binaries):
 
 | Runtime | Version | Verified |
 | --- | --- | --- |
 | Node.js | ≥ 18 | ✅ `npm run smoke:node` |
 | Bun | ≥ 1.x | ✅ `npm run smoke:bun` |
 
-## Quick start
+## Highlights
 
-```ts
-import Password from "@maahes/core";
-
-const pwd = Password(); // Argon2id with defaults - that's all it takes
-
-// registration
-const hash = await pwd.hashPassword("Tr0ub4dor&3-G00d");
-await storeHash(hash);
-
-// login
-const stored = await loadHash();
-const ok = await pwd.verifyPassword(stored, "Tr0ub4dor&3-G00d");
-```
-
-Hardened setup, one object away:
-
-```ts
-import Password from "@maahes/core";
-
-const pwd = Password({
-  algorithm: "argon2",
-  argon2: { memoryCost: 2 ** 16, timeCost: 3, parallelism: 1 },
-  normalize: "nfkc",
-  pepper: process.env.PASSWORD_PEPPER,
-  policy: {
-    minLength: 10,
-    minUppercase: 1,
-    minLowercase: 1,
-    minDigits: 1,
-    minSymbols: 1,
-    minEntropy: 40,
-    allowedScripts: ["Latin"],
-    blockedPasswords: ["password", "12345678", "qwerty123"],
-    customRules: [
-      { rule: "noSequential", test: (p) => !/(.)\1{2,}/.test(p) },
-    ],
-    enforceOnHash: true,
-  },
-});
-
-const hash = await pwd.hashPassword("Signup!Password1"); // throws if policy violated
-```
-
-## Modules
-
-| Module | Status | Docs |
-| --- | --- | --- |
-| `Password` | ✅ shipped | [Getting started](docs/getting-started.md) · [Module reference](docs/password.md) |
-| `Cors` | ✅ shipped | [Module reference](docs/cors.md) · [Examples](examples/) |
-| CSRF / CSP / XSS / headers / rate limiting / secrets / hashing / encryption / audit | 🚧 planned | — |
-
-## Quick look at `Cors`
-
-```ts
-import { Cors } from "@maahes/core";
-
-const cors = Cors({
-  origin: ["https://app.example.com", "https://*.example.com"],
-  credentials: true,
-});
-
-app.use(cors.middleware());            // Express / Connect
-// or raw node:  http.createServer(cors.middleware())
-// or fetch:     server.fetch = cors.fetchHandler(route)
-```
-
-Origin globs, per-origin credentials, Private Network Access, `Vary`
-merging and Express-compatible presets — see [docs/cors.md](docs/cors.md).
+- **Deterministic engines.** Identical config + context → byte-identical
+  output, fixed ordering, pure functions. Testable, diffable, cacheable.
+- **Fail-fast configuration.** Option errors throw
+  `MaahesOptionsError` subclasses at construction — at boot, never in a
+  request handler. Verification never throws on hostile input: it fails
+  `false` safely.
+- **Keyring peppering.** `$pepper$` markers carry the secret's id, so
+  rotation is a config change (new secret in `current`, old in
+  `previous`) and old hashes keep verifying until re-peppered at login.
+- **DoS-capped verification.** Cost parameters embedded in stored hashes
+  are bounded before any KDF work — a hostile database row can't force
+  unbounded CPU or memory.
+- **Thin, honest adapters.** Middleware/fetch wrappers derive the secure
+  context from TLS evidence, never `X-Forwarded-Proto`; they always call
+  `next()` and never swallow downstream errors.
+- **Hardened defaults.** HSTS only on secure contexts with `preload`
+  preconditions enforced, credentials never paired with a wildcard,
+  CRLF/splitting impossible by construction.
 
 ## Documentation
 
 - [docs/index.md](docs/index.md) — hub + module index
 - [Getting started](docs/getting-started.md) — install, runtimes, conventions, errors
-- [`Password` module reference](docs/password.md) — API, algorithms, policy, peppering, flows
-- [`Cors` module reference](docs/cors.md) — API, configs, presets, flows
-- [Security guidelines](docs/security.md) — hardening checklist, threat model
+- [Configuration](docs/configuration.md) — the shared config contract
+- [`Password`](docs/password.md) · [`Cors`](docs/cors.md) · [`SecurityHeaders`](docs/headers.md)
+- [Security guidelines](docs/security.md) — hardening checklist
+- [Security model](docs/security-model.md) · [Threat model](docs/threat-model.md)
+- [Migration runbooks](docs/migration.md) — pepper rotation, algorithm upgrades
+- [FAQ](docs/faq.md) — deliberate decisions and common questions
 - [Examples](examples/) — runnable end-to-end scripts (Node and Bun)
-
-New modules will each get a `<module>.md` under `docs/` following the
-same layout (see the hub for the roadmap).
 
 ## Development
 
 ```bash
-bun test            # 178 unit + integration tests
+bun test            # 305 unit + integration tests (3 modules, incl. adversarial suites)
 npm run typecheck   # tsc --noEmit
 npm run build       # tsup → dist/ (ESM + CJS + .d.ts)
 npm run smoke:node  # end-to-end checks against dist/ on Node.js

@@ -25,6 +25,30 @@ yourself:
 - deterministic output: sorted headers, canonical method order, fixed
   emission order — safe to diff, cache and test
 
+## Security notes
+
+**CORS is not authentication.** The engine answers the browser's CORS
+protocol; it does not decide *who* may call your API. A reflected origin
+grants the *browser* permission to read the response — any non-browser
+client (curl, server-to-server, bots) can send whatever `Origin` it
+likes. Always enforce real authentication and authorization
+(`Authorization` headers, sessions, server-side origin allowlists) on
+the routes themselves.
+
+- **Multiple `Origin` headers** (a malformed or hostile request can carry
+  several): the first one wins, mirroring how Node's `req.headers`
+  presents duplicates. The engine never echoes more than one origin.
+- **Array values** in `headers` (e.g. `origin: ["https://a", "https://b"]`):
+  the first entry is used for the decision and reflection — same rule as
+  the Fetch spec's single-value serialization. The remaining entries are
+  ignored.
+- **Never pair a wildcard with credentials**: with `credentials: true`,
+  a matching origin is reflected literally instead of `*`, so the browser
+  will not reject the credentialed response.
+- **`Vary` discipline**: responses whose CORS headers depend on the
+  request's `Origin` must advertise it. The engine merges `Vary`
+  automatically (see Guide 2) — never strip that header downstream.
+
 ## Quick start
 
 ```ts
@@ -232,3 +256,4 @@ Run them on Node or Bun after `npm run build`.
 - [getting-started.md](getting-started.md) — runtimes, install,
   conventions
 - [security.md](security.md) — hardening checklist (CORS is item 2)
+- [threat-model.md](threat-model.md) — what CORS can and cannot protect

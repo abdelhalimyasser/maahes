@@ -12,16 +12,20 @@ rehashing with zero migration scripts.
 **Feature highlights**
 
 - **Algorithms** — Argon2id (default), bcrypt, scrypt — full option
-  surfaces validated at construction (`PasswordOptionsError`).
+  surfaces validated at construction (`PasswordOptionsError`), and every
+  option set is validated even when its algorithm is not the active one.
 - **Peppering** — HMAC-SHA256 site secret with a self-describing
   `$pepper$` marker; `verifyPassword` applies the pepper automatically.
+  A **keyring** (`current` + `previous`) makes rotation a config change,
+  not a code change.
 - **Policy** — lengths, character classes, entropy floor, Unicode script
-  whitelist, blocklist, and user-defined `customRules`; optional
-  `enforceOnHash` gating.
+  whitelist (default `["Any"]`), blocklist, and user-defined
+  `customRules`; optional `enforceOnHash` gating.
 - **Upgrades** — `verifyAndRehash` refreshes outdated hashes at login;
   `needsRehash` flags them for tooling.
 - **Extras** — NFKC normalization, code-point-aware lengths,
-  `detectHashAlgorithm` for multi-algo migration.
+  `detectHashAlgorithm` for multi-algo migration, verify-time DoS caps
+  (a stored hash can never make the library allocate unbounded work).
 
 ## 2. Quick start
 
@@ -48,7 +52,7 @@ const pwd = Password({
   algorithm: "argon2",
   argon2: { memoryCost: 2 ** 16, timeCost: 3, parallelism: 1 },
   normalize: "nfkc",                       // fold confusables
-  pepper: process.env.PASSWORD_PEPPER,     // site secret
+  pepper: process.env.PASSWORD_PEPPER,     // site secret (keyring supported)
   policy: {
     minLength: 10, minDigits: 1, minSymbols: 1, minEntropy: 50,
     blockedPasswords: ["password", "12345678"],
@@ -89,16 +93,21 @@ const pwd = Password({
 ```ts
 interface PasswordConfig {
   algorithm?: "argon2" | "bcrypt" | "scrypt";   // default "argon2"
-  pepper?: string;                               // fallback: PASSWORD_PEPPER env
+  pepper?: string | PepperKeyring;              // string = legacy single-secret
   normalize?: "none" | "nfkc";                  // default "none"
   argon2?: Argon2Options;  bcrypt?: BcryptOptions;  scrypt?: ScryptOptions;
   policy?: PasswordPolicyOptions;
+}
+
+interface PepperKeyring {
+  current: { id: string; secret: string };      // used for every new hash
+  previous?: { id: string; secret: string }[];  // keeps old hashes verifying
 }
 ```
 
 See `src/password/types.ts` for `Argon2Options`, `BcryptOptions`,
 `ScryptOptions`, `PasswordPolicyOptions`, `CustomPasswordRule`,
-`PolicyResult`, `VerifyResult`, `PasswordModule`.
+`PolicyResult`, `VerifyResult`, `PasswordModule`, `PepperKeyring`.
 
 ## 4. Algorithms & configuration
 
@@ -129,16 +138,29 @@ const sc    = Password({ algorithm: "scrypt", scrypt: { cost: 2 ** 14 } });
 
 | Option | Rule | Option | Rule |
 | --- | --- | --- | --- |
-| argon2 memoryCost | ≥ 8·parallelism | bcrypt saltRounds | integer 4..31 |
-| argon2 timeCost / parallelism | ≥ 1 | bcrypt preHash | boolean |
-| argon2 hashLength / saltLength | ≥ 4 / ≥ 8 | scrypt cost | power of 2, ≥ 2 |
-| argon2 version | 0x10 or 0x13 | scrypt blockSize / parallelization / keyLength | ≥ 1 |
-| | | scrypt saltLength | ≥ 8 |
+| argon2 memoryCost | ≥ 8·parallelism, ≤ 2²⁰ KiB | bcrypt saltRounds | integer 4..31 |
+| argon2 timeCost | 1..32 | bcrypt preHash | boolean |
+| argon2 parallelism | 1..16 | scrypt cost | power of 2, 2..2¹⁸ |
+| argon2 hashLength / saltLength | 4..256 / 8..128 | scrypt blockSize / parallelization | 1..16 / 1..8 |
+| argon2 version | 0x10 or 0x13 | scrypt keyLength / saltLength | 1..128 / 8..96 |
 | | | scrypt maxmem | ≥ 128·cost·blockSize·2 |
+
+All three option sets are validated at construction, not just the active
+algorithm's — so a parameter bump in config can't silently produce a
+mismatch for stored hashes of a different algorithm.
 
 ```ts
 try { Password({ scrypt: { cost: 1000 } }) } catch (e) { /* "scrypt.cost must be a power of two >= 2" */ }
 ```
+
+**Verify-time DoS caps.** Stored hashes come from a database an attacker
+may have partially controlled. Before any KDF work, the library caps the
+cost parameters a stored hash can request (argon2 `memoryCost ≤ 2²⁰` KiB,
+`timeCost ≤ 32`, `parallelism ≤ 16`; scrypt `cost ≤ 2¹⁸`, `blockSize ≤
+16`, `parallelization ≤ 8`, hash length ≤ 2048 chars; bcrypt rounds ≤ 31)
+and the salt/hash lengths. A hash over the cap verifies `false` and
+reports `needsRehash: true` — verification can never allocate unbounded
+memory or CPU.
 
 **bcrypt `preHash`** removes the 72-byte truncation
 (`"a".repeat(72) + "tail"` no longer equals `"a".repeat(100)`), but those
@@ -158,7 +180,7 @@ Rules run in order; `validatePassword` reports **every** violation:
 | `whitespace` | `blockWhitespace` | true |
 | `minUppercase` / `minLowercase` / `minDigits` / `minSymbols` | class counts (Unicode-aware) | 0 (off) |
 | `minEntropy` | `estimateEntropy` bits | 0 (off) |
-| `allowedScripts` | `"Latin"|"Arabic"|"Cyrillic"|"Greek"|"Han"|"Any"` — letters only; digits/symbols are script-agnostic | `["Latin"]` |
+| `allowedScripts` | `"Latin"|"Arabic"|"Cyrillic"|"Greek"|"Han"|"Any"` — letters only; digits/symbols are script-agnostic | `["Any"]` (1.2.0; was `["Latin"]`) |
 | `blockedPasswords` | exact, case-insensitive, O(1) `Set` | `[]` |
 | *custom* | `customRules` | `[]` |
 
@@ -194,33 +216,60 @@ await p.hashPassword("ｐａｓｓｗｏｒｄ１２３");          // folds to 
 await p.verifyPassword(hash, "password123");             // true
 ```
 
-## 6. Peppering & rotation
+## 6. Peppering, markers & rotation
 
 ```ts
 const pwd = Password({ pepper: process.env.PASSWORD_PEPPER }); // env fallback ✓
 
 const hash = await pwd.pepperedHashPassword("my-password");
-// $pepper$<sha256(pepper)→8 hex>$argon2id$...
+// $pepper$<id>$argon2id$...
 await pwd.verifyPassword(hash, "my-password");   // true — marker auto-applied
-await legacyPwd.verifyPassword(hash, "my-password"); // false — wrong pepper
+await wrongPepperPwd.verifyPassword(hash, "my-password"); // false — unknown id
 ```
 
-- **Unmarked legacy hashes** (pre-marker era): verify with
-  `pepperedVerifyPassword`.
-- **Rotation**: during the window, keep a module per era —
-  `current` (new secret) + `previous` (old secret); upgrade on login:
+### Markers
+
+Every peppered hash is wrapped in a self-describing `$pepper$<id>$` marker.
+`verifyPassword`/`needsRehash`/`verifyAndRehash` read the id from the
+marker and select the exact secret from the ring — you cannot
+"forget" the pepper. Unknown or corrupted marker ids **fail safely**
+(`false`, never an exception). The string form (`pepper: "secret"`)
+derives a stable 8-hex id (SHA-256), so 1.x markers keep working.
+
+- **Legacy unmarked hashes** (pre-marker era) carry no identity — verify
+  with `pepperedVerifyPassword`, which tries the current secret first,
+  then each previous secret in order.
+
+### Rotation with the keyring
+
+Rotation is a config change, not a code change. Put the new secret in
+`current` and the old one in `previous`:
 
 ```ts
-const current = Password({ pepper: NEW });
-const previous = Password({ pepper: OLD });
+const pwd = Password({
+  pepper: {
+    current: { id: "2026-a", secret: process.env.PASSWORD_PEPPER },
+    previous: [{ id: "2025-b", secret: process.env.OLD_PASSWORD_PEPPER }],
+  },
+});
 
-async function rotate(stored, password) {
-  if (await current.verifyPassword(stored, password)) return;
-  if (await previous.verifyPassword(stored, password)) {
-    await persist(current.pepperedHashPassword(password)); // upgrade on login
-  }
-}
+// Every new hash uses the current secret…
+const hash = await pwd.pepperedHashPassword("my-password");
+
+// …while old-era hashes still verify (marker routes to the old secret).
+await pwd.verifyPassword(oldEraHash, "my-password");   // true
+await pwd.needsRehash(oldEraHash);                     // true — era changed
+
+// Login-time: verify + re-pepper onto the current secret in one call.
+const { valid, newHash } = await pwd.verifyAndRehash(oldEraHash, "my-password");
+if (valid && newHash) await updateHash(user.id, newHash);
 ```
+
+`verifyAndRehash` rehashes when the algorithm, driver parameters, or the
+pepper era changed — the replacement always uses the **current** secret.
+It never produces a replacement when verification failed. See
+[migration.md](migration.md) for the runbook (including the two
+intentionally non-automatable migrations).
 
 ## 7. Flows
 
@@ -264,8 +313,12 @@ parameter bumps are absorbed automatically by `verifyAndRehash`.
 | `PasswordOptionsError` | construction: option out of range | message naming option + range |
 | `PasswordPolicyError` | `hashPassword`/`pepperedHashPassword` with `enforceOnHash` | `.violations: {rule,message}[]` |
 
+All three extend the shared `MaahesError` base
+(`PasswordOptionsError` → `MaahesOptionsError`), so a single
+`instanceof MaahesError` check covers the whole toolkit.
+
 Verification (`verifyPassword`, `pepperedVerifyPassword`, `verifyAndRehash`)
-never throws on malformed hashes.
+never throws on malformed hashes — they fail safely with `false`.
 
 ## 9. Run it
 
