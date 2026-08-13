@@ -5,14 +5,16 @@
  * Exercises the password module exactly as a consumer would: hashing and
  * verifying with every algorithm, policy enforcement with custom rules,
  * peppering with the marker, entropy estimation, hash-format detection and
- * the login-time rehash flow. Runs against `dist/` under BOTH Node.js
- * (`npm run smoke:node`) and Bun (`npm run smoke:bun`) to prove runtime
- * compatibility of the native dependencies (argon2, bcrypt).
+ * the login-time rehash flow. Then exercises the CORS module: preflight
+ * and simple-request headers, glob/per-origin credentials, deny policies,
+ * Vary merging, the middleware and the fetch wrapper. Runs against
+ * `dist/` under BOTH Node.js (`npm run smoke:node`) and Bun
+ * (`npm run smoke:bun`) to prove runtime compatibility.
  *
  * Exits non-zero on the first failed assertion.
  */
 
-import { Password, detectHashAlgorithm, estimateEntropy, PasswordPolicyError } from "../dist/index.js";
+import { Password, Cors, detectHashAlgorithm, estimateEntropy, PasswordPolicyError } from "../dist/index.js";
 
 let checks = 0;
 
@@ -77,6 +79,95 @@ async function run() {
   const upgraded = Password({ algorithm: "bcrypt", bcrypt: { saltRounds: 6 } });
   const outcome = await upgraded.verifyAndRehash(stored, "login-pass-123");
   assert(outcome.valid === true && typeof outcome.newHash === "string", "verifyAndRehash: rehashed on param bump");
+
+  // 6) CORS: preflight + simple request with glob rules and credentials.
+  const cors = Cors({
+    origin: [
+      "https://app.example.com",
+      "https://*.example.com",
+      { pattern: "https://admin.example.com", credentials: true },
+    ],
+    credentials: false,
+    exposedHeaders: ["x-total-count"],
+  });
+
+  const preflight = cors.process({
+    method: "OPTIONS",
+    headers: {
+      origin: "https://sub.example.com",
+      "access-control-request-method": "PATCH",
+      "access-control-request-headers": "content-type, x-token",
+    },
+  });
+  assert(preflight.allowed && preflight.preflight, "cors: preflight allowed");
+  assert(preflight.statusCode === 204, "cors: preflight 204");
+  assert(preflight.headers["Access-Control-Allow-Origin"] === "https://sub.example.com", "cors: glob origin reflected");
+  assert(preflight.headers["Access-Control-Allow-Headers"] === "content-type, x-token", "cors: requested headers reflected");
+  assert(preflight.headers["Access-Control-Max-Age"] === "86400", "cors: default max-age");
+  assert(preflight.headers["Vary"].split(", ").length === 3, "cors: Vary triptych");
+
+  const simple = cors.process({
+    method: "GET",
+    headers: { origin: "https://app.example.com", vary: "Accept-Encoding" },
+  });
+  assert(simple.allowed && !simple.preflight, "cors: simple request allowed");
+  assert(simple.headers["Access-Control-Allow-Origin"] === "https://app.example.com", "cors: exact origin reflected");
+  assert(simple.headers["Access-Control-Allow-Credentials"] === undefined, "cors: global credentials stay off");
+  assert(simple.headers["Access-Control-Expose-Headers"] === "x-total-count", "cors: expose headers");
+  assert(simple.headers["Vary"] === "Accept-Encoding, Origin", "cors: Vary merged, not clobbered");
+
+  const admin = cors.process({
+    method: "GET",
+    headers: { origin: "https://admin.example.com" },
+  });
+  assert(admin.headers["Access-Control-Allow-Credentials"] === "true", "cors: per-origin credentials override");
+
+  const denied = cors.process({ method: "GET", headers: { origin: "https://evil.io" } });
+  assert(!denied.allowed && denied.blocked, "cors: unknown origin blocked");
+  assert(Object.keys(denied.headers).length === 0, "cors: block omits headers by default");
+
+  const hard = Cors({ origin: ["https://app.example.com"], failureStatus: 403 }).process({
+    method: "GET",
+    headers: { origin: "https://evil.io" },
+  });
+  assert(hard.statusCode === 403, "cors: failureStatus hard-block");
+
+  const wildcardWithCreds = Cors({ credentials: true }).process({
+    method: "GET",
+    headers: { origin: "https://whoever.example.com" },
+  });
+  assert(
+    wildcardWithCreds.headers["Access-Control-Allow-Origin"] !== "*" &&
+      wildcardWithCreds.headers["Access-Control-Allow-Credentials"] === "true",
+    "cors: credentials never pair with a wildcard"
+  );
+
+  // 7) CORS: middleware + fetch surfaces.
+  const headers = {};
+  const middleware = Cors({ origin: ["https://app.example.com"] }).middleware();
+  let nextCalled = false;
+  middleware(
+    { method: "GET", headers: { origin: "https://app.example.com" } },
+    { setHeader: (n, v) => (headers[n] = v), statusCode: 200, end: () => {} },
+    () => {
+      nextCalled = true;
+    }
+  );
+  assert(nextCalled, "cors: middleware calls next for simple requests");
+  assert(headers["Access-Control-Allow-Origin"] === "https://app.example.com", "cors: middleware applied headers");
+
+  const handle = Cors({ origin: ["https://app.example.com"], credentials: true }).fetchHandler((request) => {
+    assert(request.headers.get("origin") === "https://app.example.com", "cors: fetch handler receives the request");
+    return new Response("ok", { status: 200 });
+  });
+  const response = await handle(
+    new Request("https://api.example.com/data", {
+      method: "GET",
+      headers: { origin: "https://app.example.com" },
+    })
+  );
+  assert(response !== undefined && (await response.text()) === "ok", "cors: fetch wrapper returned handler body");
+  assert(response.headers.get("Access-Control-Allow-Origin") === "https://app.example.com", "cors: fetch wrapper decorated response");
 
   console.log(`\nSMOKE OK: ${checks} checks passed (${process.execPath})`);
   process.exit(0);
