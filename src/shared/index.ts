@@ -8,3 +8,4 @@
  */
 
 export * from "./deepMerge";
+export * from "./errors";
