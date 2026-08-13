@@ -4,6 +4,78 @@ All notable changes to this project are documented here. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-08-13
+
+### Added
+
+- **SecurityHeaders module** (`SecurityHeaders()` factory, exported from
+  the package root):
+  - Deterministic engine: fixed emission order (`KNOWN_HEADER_ORDER`),
+    sorted extras, case-insensitive `remove`, `overwrite` semantics —
+    identical config + context → byte-identical output.
+  - Presets `minimal` / `default` / `strict`, deep-merged with user
+    options; `DEFAULT_HEADERS_CONFIG` exported for introspection.
+  - Never emits `Content-Security-Policy` (reserved slot for the
+    planned csp module).
+  - HSTS with secure-context semantics (`httpsOnly: true` default),
+    RFC 6797 §6.1 `maxAge` cap, and fail-fast `preload` preconditions.
+  - Construction-time validation: RFC 7230 header-name tokens, control
+    characters (CRLF/splitting) rejected in values, remove/extra and
+    engine-owned-header conflicts (`SecurityHeadersOptionsError`).
+  - Connect/Express middleware and Web-standard `fetchHandler` adapters:
+    secure context from TLS socket / `req.secure` / `https://` URL
+    (never `X-Forwarded-Proto`), always call `next()`, downstream errors
+    always propagate.
+  - Config from object, JSON string, or JSON file (`{"headers": …}`
+    unwrapped).
+- **Password hardening**:
+  - Pepper **keyring** (`current` + `previous`) — rotation is now a
+    config change; marked hashes route to the exact secret by id.
+  - Verify-time DoS caps: stored-hash cost parameters bounded before any
+    KDF work (argon2 ≤ 2²⁰ KiB / 32 / 16, scrypt ≤ 2¹⁸ / 16 / 8,
+    bcrypt rounds ≤ 31, hash/salt length limits); over-cap hashes
+    verify `false` and report `needsRehash: true`.
+  - `verifyAndRehash` re-peppers rotated hashes onto the **current**
+    secret (previous behavior reused the old secret); replacement never
+    produced when verification fails.
+  - Auto algorithm detection in `verifyPassword` / `needsRehash` /
+    `verifyAndRehash` (per-hash driver selection).
+  - All three driver option sets validated at construction, not only the
+    active algorithm's.
+  - Default `allowedScripts` changed `["Latin"]` → `["Any"]`: the old
+    default silently rejected legitimate non-Latin passwords.
+- **Shared error base**: `MaahesError` / `MaahesOptionsError`
+  (`PasswordOptionsError`, `CorsOptionsError`,
+  `SecurityHeadersOptionsError` extend them; `PasswordPolicyError`
+  extends `MaahesError`).
+- **Adversarial test suites**: password (127 tests), cors (107 tests),
+  headers (71 tests) — hostile inputs, fail-closed paths, purity under
+  frozen inputs, secret-leak assertions (305 total).
+- **Examples**: `headers-server.mjs`, `headers-fetch.mjs`, rewritten
+  `pepper-rotation.mjs` for the keyring; smoke script extended to 62
+  checks (Node + Bun).
+- **Docs**: headers reference, security model, threat model,
+  configuration contract, migration runbooks, testing guide, FAQ,
+  contributing bar; password/cors/security docs updated for the
+  keyring and audit findings.
+
+### Changed
+
+- CORS documented: first `Origin` header wins (multi-header requests),
+  first entry of array values wins, CORS is not authentication.
+- `repository` / `bugs` / `homepage` metadata, expanded description and
+  keywords in `package.json`.
+
+### Security
+
+- Verification paths now fail safely (return `false`) for unknown pepper
+  ids, corrupt markers, over-cap costs and malformed hashes — a hostile
+  database row can never crash login or force unbounded work.
+- Header injection (CRLF/control characters) rejected at configuration
+  time — impossible by construction at request time.
+- HSTS never emitted over plain HTTP by default; `preload` guarded by
+  its real preconditions.
+
 ## [1.1.0] - 2026-08-13
 
 ### Added

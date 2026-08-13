@@ -1,8 +1,16 @@
 {
   "name": "@maahes/core",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "Abdelhalim Yasser",
-  "description": "Maahes security toolkit",
+  "description": "Maahes security toolkit: password hashing and policy, CORS, and security headers for Node.js >= 18 and Bun",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abdelhalimyasser/maahes.git"
+  },
+  "bugs": {
+    "url": "https://github.com/abdelhalimyasser/maahes/issues"
+  },
+  "homepage": "https://github.com/abdelhalimyasser/maahes#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -41,8 +49,14 @@
   "keywords": [
     "security",
     "argon2",
+    "bcrypt",
+    "scrypt",
     "password",
+    "pepper",
+    "policy",
     "cors",
+    "security-headers",
+    "hsts",
     "csrf",
     "xss",
     "headers"
