@@ -43,8 +43,8 @@
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
-    "tsup": "^8.2.4",
-    "typescript": "^5.5.4"
+    "tsup": "^9.0.0",
+    "typescript": "^7.0.2"
   },
   "keywords": [
     "security",
